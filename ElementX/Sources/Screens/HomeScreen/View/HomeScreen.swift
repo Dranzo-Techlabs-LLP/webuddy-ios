@@ -47,6 +47,16 @@ struct HomeScreen: View {
                     .buttonStyle(.compound(.super, size: .toolbarIcon))
             }
         }
+        
+        if #available(iOS 26, *) {
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+        }
+        
+        ToolbarItem(placement: .primaryAction) {
+            SpaceFiltersButton(selected: context.viewState.selectedSpaceFilter != nil) {
+                context.send(viewAction: .spaceFilters)
+            }
+        }
     }
     
     private var settingsButton: some View {
@@ -92,6 +102,40 @@ struct HomeScreen: View {
     
     private func leaveRoomAlertMessage(_ item: LeaveRoomAlertItem) -> some View {
         Text(item.subtitle)
+    }
+    
+    private struct SpaceFiltersButton: View {
+        var selected = false
+        var action: () -> Void
+        
+        var body: some View {
+            if #available(iOS 26, *) {
+                if selected {
+                    content
+                        .buttonStyle(.glassProminent).tint(.compound.bgAccentRest)
+                } else {
+                    content
+                }
+            } else {
+                if selected {
+                    content
+                        .buttonStyle(.compound(.primary, size: .toolbarIcon))
+                } else {
+                    content
+                        .buttonStyle(.compound(.secondary, size: .toolbarIcon))
+                }
+            }
+        }
+        
+        private var content: some View {
+            Button {
+                action()
+            } label: {
+                CompoundIcon(\.filter)
+            }
+            .accessibilityLabel(L10n.screenRoomlistYourSpaces)
+            .accessibilityIdentifier(A11yIdentifiers.homeScreen.spaceFilters)
+        }
     }
 }
 
@@ -147,6 +191,7 @@ struct HomeScreen_Previews: PreviewProvider, TestablePreview {
         
         return HomeScreenViewModel(userSession: userSession,
                                    selectedRoomPublisher: CurrentValueSubject<String?, Never>(nil).asCurrentValuePublisher(),
+                                   spaceFilterPublisher: CurrentValueSubject<SpaceServiceFilter?, Never>(nil).asCurrentValuePublisher(),
                                    appSettings: ServiceLocator.shared.settings,
                                    analyticsService: ServiceLocator.shared.analytics,
                                    notificationManager: NotificationManagerMock(),

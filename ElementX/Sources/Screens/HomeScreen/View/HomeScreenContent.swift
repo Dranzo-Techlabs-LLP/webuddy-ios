@@ -126,7 +126,9 @@ struct HomeScreenContent: View {
         if context.viewState.shouldShowFilters || context.viewState.shouldShowBanner {
             VStack(spacing: 0) {
                 if context.viewState.shouldShowFilters {
-                    RoomListFiltersView(state: $context.filtersState)
+                    VStack(spacing: 0) {
+                        RoomListFiltersView(state: $context.filtersState)
+                    }
                 }
                 
                 if case let .show(state) = context.viewState.securityBannerMode {

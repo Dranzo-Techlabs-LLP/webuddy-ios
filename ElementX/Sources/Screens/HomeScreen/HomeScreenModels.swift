@@ -25,6 +25,7 @@ enum HomeScreenViewModelAction {
     case presentFeedbackScreen
     case presentStartChatScreen
     case presentGlobalSearch
+    case presentSpaceFilters
     case logout
 }
 
@@ -43,6 +44,7 @@ enum HomeScreenViewAction {
     case dismissNewSoundBanner
     case updateVisibleItemRange(Range<Int>)
     case globalSearch
+    case spaceFilters
     case markRoomAsUnread(roomIdentifier: String)
     case markRoomAsRead(roomIdentifier: String)
     case markRoomAsFavourite(roomIdentifier: String, isFavourite: Bool)
@@ -108,6 +110,8 @@ struct HomeScreenViewState: BindableState {
     var hideInviteAvatars = false
     
     var reportRoomEnabled = false
+    
+    var selectedSpaceFilter: SpaceServiceFilter?
     
     var visibleRooms: [HomeScreenRoom] {
         if roomListMode == .skeletons {

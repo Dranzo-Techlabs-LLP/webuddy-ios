@@ -154,15 +154,6 @@
       }
     },
     {
-      "identity" : "matrix-rust-components-swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/element-hq/matrix-rust-components-swift",
-      "state" : {
-        "revision" : "134161b4a42d019befe6a9a293d5248b8c41015a",
-        "version" : "26.1.13"
-      }
-    },
-    {
       "identity" : "ogg-swift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/vector-im/ogg-swift.git",

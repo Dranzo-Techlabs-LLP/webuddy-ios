@@ -113,6 +113,18 @@ extension PreviewTests {
         }
     }
 
+    func testChatsSpaceFilterCell() async throws {
+        for (index, preview) in ChatsSpaceFilterCell_Previews._allPreviews.enumerated() {
+            try await assertSnapshots(matching: preview, step: index)
+        }
+    }
+
+    func testChatsSpaceFiltersScreen() async throws {
+        for (index, preview) in ChatsSpaceFiltersScreen_Previews._allPreviews.enumerated() {
+            try await assertSnapshots(matching: preview, step: index)
+        }
+    }
+
     func testCollapsibleRoomTimelineView() async throws {
         for (index, preview) in CollapsibleRoomTimelineView_Previews._allPreviews.enumerated() {
             try await assertSnapshots(matching: preview, step: index)
