@@ -39,8 +39,11 @@ struct CreateRoomScreen: View {
         Form {
             roomSection
             topicSection
+            if context.viewState.canSelectSpace {
+                selectSpaceSection
+            }
             roomAccessSection
-            if !context.selectedAccessType.isPrivate {
+            if !context.viewState.roomAccessType.isPrivate {
                 roomAliasSection
             }
         }
@@ -52,6 +55,9 @@ struct CreateRoomScreen: View {
         .toolbar { toolbar }
         .alert(item: $context.alertInfo)
         .shouldScrollOnKeyboardDidShow(focus == .alias, to: Focus.alias)
+        .sheet(isPresented: $context.showSpaceSelectionSheet) {
+            CreateRoomSpaceSelectionSheet(context: context)
+        }
     }
     
     private var nameTextFieldShape: AnyShape {
@@ -181,6 +187,7 @@ struct CreateRoomScreen: View {
         Section {
             ForEach(context.viewState.availableAccessTypes, id: \.self) { accessType in
                 CreateRoomAccessRow(access: accessType,
+                                    spaceName: context.selectedSpace?.name ?? "",
                                     isSelected: context.selectedAccessType == accessType) {
                     context.selectedAccessType = accessType
                 }
@@ -215,6 +222,29 @@ struct CreateRoomScreen: View {
         }
     }
     
+    private var selectSpaceSection: some View {
+        Section {
+            if let selectedSpace = context.selectedSpace {
+                ListRow(label: .avatar(title: selectedSpace.name,
+                                       description: selectedSpace.canonicalAlias,
+                                       icon: RoomAvatarImage(avatar: selectedSpace.avatar,
+                                                             avatarSize: .room(on: .createRoomSelectSpace),
+                                                             mediaProvider: context.mediaProvider)),
+                        kind: .navigationLink {
+                            context.showSpaceSelectionSheet = true
+                        })
+            } else {
+                ListRow(label: .default(title: "Test", icon: \.home),
+                        kind: .navigationLink {
+                            context.showSpaceSelectionSheet = true
+                        })
+            }
+        } header: {
+            Text(L10n.commonSpace)
+                .compoundListSectionHeader()
+        }
+    }
+    
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         if context.viewState.shouldShowCancelButton {
@@ -237,7 +267,8 @@ struct CreateRoomScreen: View {
 }
 
 private struct CreateRoomAccessRow: View {
-    let access: CreateRoomAccessType
+    let access: CreateRoomScreenAccessType
+    let spaceName: String
     let isSelected: Bool
     let onSelection: () -> Void
     
@@ -249,6 +280,10 @@ private struct CreateRoomAccessRow: View {
             L10n.screenCreateRoomRoomAccessSectionKnockingOptionTitle
         case .private:
             L10n.screenCreateRoomRoomAccessSectionPrivateOptionTitle
+        case .spaceMembers:
+            L10n.screenCreateRoomRoomAccessSectionRestrictedOptionTitle
+        case .askToJoinWithSpaceMembers:
+            L10n.screenCreateRoomRoomAccessSectionKnockingRestrictedOptionTitle
         }
     }
     
@@ -260,6 +295,10 @@ private struct CreateRoomAccessRow: View {
             L10n.screenCreateRoomRoomAccessSectionKnockingOptionDescription
         case .private:
             L10n.screenCreateRoomRoomAccessSectionPrivateOptionDescription
+        case .spaceMembers:
+            L10n.screenCreateRoomRoomAccessSectionRestrictedOptionDescription(spaceName)
+        case .askToJoinWithSpaceMembers:
+            L10n.screenCreateRoomRoomAccessSectionKnockingRestrictedOptionDescription(spaceName)
         }
     }
     
@@ -271,6 +310,10 @@ private struct CreateRoomAccessRow: View {
             \.userAdd
         case .private:
             \.lock
+        case .spaceMembers:
+            \.space
+        case .askToJoinWithSpaceMembers:
+            \.userAdd
         }
     }
     
@@ -291,6 +334,7 @@ struct CreateRoom_Previews: PreviewProvider, TestablePreview {
         AppSettings.resetAllSettings()
         let userSession = UserSessionMock(.init(clientProxy: ClientProxyMock(.init(userID: "@userid:example.com"))))
         return CreateRoomScreenViewModel(isSpace: false,
+                                         spaceSelectionMode: .list,
                                          shouldShowCancelButton: false,
                                          userSession: userSession,
                                          analytics: ServiceLocator.shared.analytics,
@@ -302,6 +346,7 @@ struct CreateRoom_Previews: PreviewProvider, TestablePreview {
         AppSettings.resetAllSettings()
         let userSession = UserSessionMock(.init(clientProxy: ClientProxyMock(.init(userID: "@userid:example.com"))))
         let viewModel = CreateRoomScreenViewModel(isSpace: false,
+                                                  spaceSelectionMode: .list,
                                                   shouldShowCancelButton: false,
                                                   userSession: userSession,
                                                   analytics: ServiceLocator.shared.analytics,
@@ -315,6 +360,7 @@ struct CreateRoom_Previews: PreviewProvider, TestablePreview {
         AppSettings.resetAllSettings()
         let userSession = UserSessionMock(.init(clientProxy: ClientProxyMock(.init(userID: "@userid:example.com"))))
         return CreateRoomScreenViewModel(isSpace: true,
+                                         spaceSelectionMode: nil,
                                          shouldShowCancelButton: true,
                                          userSession: userSession,
                                          analytics: ServiceLocator.shared.analytics,
@@ -326,6 +372,7 @@ struct CreateRoom_Previews: PreviewProvider, TestablePreview {
         AppSettings.resetAllSettings()
         let userSession = UserSessionMock(.init(clientProxy: ClientProxyMock(.init(userID: "@userid:example.com"))))
         let viewModel = CreateRoomScreenViewModel(isSpace: true,
+                                                  spaceSelectionMode: nil,
                                                   shouldShowCancelButton: true,
                                                   userSession: userSession,
                                                   analytics: ServiceLocator.shared.analytics,
@@ -339,6 +386,7 @@ struct CreateRoom_Previews: PreviewProvider, TestablePreview {
         AppSettings.resetAllSettings()
         let userSession = UserSessionMock(.init(clientProxy: ClientProxyMock(.init(userIDServerName: "example.org", userID: "@userid:example.com"))))
         let viewModel = CreateRoomScreenViewModel(isSpace: false,
+                                                  spaceSelectionMode: .list,
                                                   shouldShowCancelButton: false,
                                                   userSession: userSession,
                                                   analytics: ServiceLocator.shared.analytics,
@@ -354,6 +402,7 @@ struct CreateRoom_Previews: PreviewProvider, TestablePreview {
         appSettings.knockingEnabled = true
         let userSession = UserSessionMock(.init(clientProxy: ClientProxyMock(.init(userIDServerName: "example.org", userID: "@userid:example.com"))))
         let viewModel = CreateRoomScreenViewModel(isSpace: false,
+                                                  spaceSelectionMode: .list,
                                                   shouldShowCancelButton: false,
                                                   userSession: userSession,
                                                   analytics: ServiceLocator.shared.analytics,
@@ -367,6 +416,7 @@ struct CreateRoom_Previews: PreviewProvider, TestablePreview {
         AppSettings.resetAllSettings()
         let userSession = UserSessionMock(.init(clientProxy: ClientProxyMock(.init(userIDServerName: "example.org", userID: "@userid:example.com"))))
         let viewModel = CreateRoomScreenViewModel(isSpace: false,
+                                                  spaceSelectionMode: .list,
                                                   shouldShowCancelButton: false,
                                                   userSession: userSession,
                                                   analytics: ServiceLocator.shared.analytics,
@@ -383,6 +433,7 @@ struct CreateRoom_Previews: PreviewProvider, TestablePreview {
         clientProxy.isAliasAvailableReturnValue = .success(false)
         let userSession = UserSessionMock(.init(clientProxy: clientProxy))
         let viewModel = CreateRoomScreenViewModel(isSpace: false,
+                                                  spaceSelectionMode: .list,
                                                   shouldShowCancelButton: false,
                                                   userSession: userSession,
                                                   analytics: ServiceLocator.shared.analytics,
