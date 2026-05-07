@@ -17,6 +17,7 @@ struct HomeScreen: View {
 
     @State private var scrollViewAdapter = ScrollViewAdapter()
     @State private var rolePickerShown = false
+    @State private var walletSheetShown = false
     @AppStorage("webuddy.rolePicked") private var rolePicked = false
 
     var body: some View {
@@ -42,6 +43,16 @@ struct HomeScreen: View {
                 Button("I'm a Normal User") { Task { await pickRole(false) } }
             } message: {
                 Text("Tell us how you'll use Webuddy. This decides whether you can initiate paid chats.")
+            }
+            .sheet(isPresented: $walletSheetShown) {
+                NavigationStack {
+                    WalletDashboardView(userID: context.viewState.userID)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button("Close") { walletSheetShown = false }
+                            }
+                        }
+                }
             }
     }
 
@@ -75,13 +86,17 @@ struct HomeScreen: View {
 
     @ViewBuilder
     private var walletBadge: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "creditcard.fill")
-                .font(.compound.bodySM)
-                .foregroundStyle(.secondary)
-            Text("\(wallet.credits ?? 0) credits")
-                .font(.compound.bodyMDSemibold)
-                .foregroundColor(.compound.textPrimary)
+        Button {
+            walletSheetShown = true
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "creditcard.fill")
+                    .font(.compound.bodySM)
+                    .foregroundStyle(.secondary)
+                Text("\(wallet.credits ?? 0) credits")
+                    .font(.compound.bodyMDSemibold)
+                    .foregroundColor(.compound.textPrimary)
+            }
         }
     }
     
