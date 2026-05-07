@@ -11,22 +11,23 @@ import SwiftUI
 
 struct AdvancedSettingsScreen: View {
     @Bindable var context: AdvancedSettingsScreenViewModel.Context
-    
+    @ObservedObject private var wallet: WalletService = ServiceLocator.shared.wallet
+
     var body: some View {
         Form {
             Section {
                 ListRow(label: .plain(title: L10n.commonAppearance),
                         kind: .picker(selection: $context.appAppearance,
                                       items: AppAppearance.allCases.map { (title: $0.name, tag: $0) }))
-                
+
                 ListRow(label: .plain(title: L10n.actionViewSource,
                                       description: L10n.screenAdvancedSettingsViewSourceDescription),
                         kind: .toggle($context.viewSourceEnabled))
-                
+
                 ListRow(label: .plain(title: L10n.screenAdvancedSettingsSharePresence,
                                       description: L10n.screenAdvancedSettingsSharePresenceDescription),
                         kind: .toggle($context.sharePresence))
-                
+
                 ListRow(label: .plain(title: L10n.screenAdvancedSettingsMediaCompressionTitle,
                                       description: L10n.screenAdvancedSettingsMediaCompressionDescription),
                         kind: .toggle($context.optimizeMediaUploads))
@@ -34,13 +35,37 @@ struct AdvancedSettingsScreen: View {
                         context.send(viewAction: .optimizeMediaUploadsChanged)
                     }
             }
-            
+
+            if wallet.isCurrentUserConsultant == true {
+                walletSection
+            }
             moderationAndSafetySection
             timelineMediaSection
         }
         .compoundList()
         .navigationTitle(L10n.commonAdvancedSettings)
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            // Pull the current role + balance so the consultant-only Wallet section can render.
+            if let userID = context.viewState.currentUserID {
+                await wallet.refreshBalance(userId: userID)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var walletSection: some View {
+        Section {
+            ListRow(label: .plain(title: "Max Credits",
+                                  description: wallet.maxCredits.map { "\($0) credits" } ?? "—"),
+                    kind: .label)
+
+            ListRow(label: .plain(title: "Bank Details"),
+                    kind: .label)
+        } header: {
+            Text("Wallet")
+                .compoundListSectionHeader()
+        }
     }
     
     @ViewBuilder

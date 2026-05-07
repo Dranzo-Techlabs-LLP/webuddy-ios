@@ -26,8 +26,14 @@ class ServiceLocator {
     }
     
     private(set) var analytics: AnalyticsService!
-    
+
     func register(analytics: AnalyticsService) {
         self.analytics = analytics
+    }
+
+    private(set) var wallet: WalletService!
+
+    func register(wallet: WalletService) {
+        self.wallet = wallet
     }
 }
