@@ -36,6 +36,7 @@ struct AdvancedSettingsScreen: View {
                     }
             }
 
+            walletDashboardSection
             if wallet.isCurrentUserConsultant == true {
                 walletSection
             }
@@ -49,6 +50,24 @@ struct AdvancedSettingsScreen: View {
             // Pull the current role + balance so the consultant-only Wallet section can render.
             if let userID = context.viewState.currentUserID {
                 await wallet.refreshBalance(userId: userID)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var walletDashboardSection: some View {
+        if let userID = context.viewState.currentUserID {
+            Section {
+                NavigationLink {
+                    WalletDashboardView(userID: userID)
+                } label: {
+                    HStack {
+                        Text("Wallet")
+                        Spacer()
+                        Text(wallet.credits.map { "\($0) credits" } ?? "—")
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
     }
