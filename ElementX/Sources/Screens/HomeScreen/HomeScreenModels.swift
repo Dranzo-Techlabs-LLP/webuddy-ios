@@ -203,8 +203,11 @@ struct HomeScreenRoom: Identifiable, Equatable {
     let avatar: RoomAvatar
         
     let canonicalAlias: String?
-    
+
     let isTombstoned: Bool
+
+    /// Matrix ID of the DM partner (single hero) — used to look up the consultant's price tag.
+    let heroUserID: String?
     
     var displayedLastMessage: AttributedString? {
         if isTombstoned {
@@ -230,7 +233,8 @@ struct HomeScreenRoom: Identifiable, Equatable {
                        lastMessageState: nil,
                        avatar: .room(id: "", name: "", avatarURL: nil),
                        canonicalAlias: nil,
-                       isTombstoned: false)
+                       isTombstoned: false,
+                       heroUserID: nil)
     }
 }
 
@@ -269,7 +273,8 @@ extension HomeScreenRoom {
                   lastMessageState: summary.homeScreenLastMessageState,
                   avatar: summary.avatar,
                   canonicalAlias: summary.canonicalAlias,
-                  isTombstoned: summary.isTombstoned)
+                  isTombstoned: summary.isTombstoned,
+                  heroUserID: summary.heroes.count == 1 ? summary.heroes.first?.userID : nil)
     }
 }
 

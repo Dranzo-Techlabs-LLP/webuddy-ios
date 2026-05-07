@@ -13,11 +13,14 @@ import SwiftUI
 struct HomeScreenRoomCell: View {
     @Environment(\.dynamicTypeSize) var dynamicTypeSize
     @Environment(\.redactionReasons) private var redactionReasons
-    
+    @ObservedObject private var wallet: WalletService = ServiceLocator.shared.wallet
+
     let room: HomeScreenRoom
     let isSelected: Bool
     let mediaProvider: MediaProviderProtocol!
     let action: (HomeScreenViewAction) -> Void
+
+    @State private var partnerCredits: Int?
     
     private let verticalInsets = 12.0
     private let horizontalInsets = 16.0
@@ -84,12 +87,27 @@ struct HomeScreenRoomCell: View {
                 .foregroundColor(.compound.textPrimary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            
-            if let timestamp = room.timestamp {
-                Text(timestamp)
-                    .font(room.isHighlighted ? .compound.bodySMSemibold : .compound.bodySM)
-                    .foregroundColor(room.isHighlighted ? .compound.textActionAccent : .compound.textSecondary)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                if let timestamp = room.timestamp {
+                    Text(timestamp)
+                        .font(room.isHighlighted ? .compound.bodySMSemibold : .compound.bodySM)
+                        .foregroundColor(room.isHighlighted ? .compound.textActionAccent : .compound.textSecondary)
+                }
+                // Per-row max-credits is the consultant's price tag — only clients see it.
+                if let credits = partnerCredits, wallet.isCurrentUserConsultant != true {
+                    Text("\(credits) credits")
+                        .font(.compound.bodySMSemibold)
+                        .foregroundColor(.compound.textSecondary)
+                }
             }
+        }
+        .task(id: room.heroUserID) {
+            guard let hero = room.heroUserID, wallet.isCurrentUserConsultant != true else {
+                partnerCredits = nil
+                return
+            }
+            partnerCredits = await wallet.getMaxCredits(userId: hero)
         }
     }
     

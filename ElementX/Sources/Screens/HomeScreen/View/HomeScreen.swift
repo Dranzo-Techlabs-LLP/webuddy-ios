@@ -13,9 +13,12 @@ import SwiftUI
 
 struct HomeScreen: View {
     @ObservedObject var context: HomeScreenViewModel.Context
-    
+    @ObservedObject private var wallet: WalletService = ServiceLocator.shared.wallet
+
     @State private var scrollViewAdapter = ScrollViewAdapter()
-    
+    @State private var rolePickerShown = false
+    @AppStorage("webuddy.rolePicked") private var rolePicked = false
+
     var body: some View {
         HomeScreenContent(context: context, scrollViewAdapter: scrollViewAdapter)
             .alert(item: $context.alertInfo)
@@ -28,6 +31,23 @@ struct HomeScreen: View {
             .track(screen: .Home)
             .toolbarBloom(hasSearchBar: true)
             .sentryTrace("\(Self.self)")
+            .task(id: context.viewState.userID) {
+                let userID = context.viewState.userID
+                await wallet.ensureWalletUser(userId: userID, name: context.viewState.userDisplayName)
+                await wallet.refreshBalance(userId: userID)
+                if !rolePicked { rolePickerShown = true }
+            }
+            .alert("Choose your role", isPresented: $rolePickerShown) {
+                Button("I'm a Consultant") { Task { await pickRole(true) } }
+                Button("I'm a Normal User") { Task { await pickRole(false) } }
+            } message: {
+                Text("Tell us how you'll use Webuddy. This decides whether you can initiate paid chats.")
+            }
+    }
+
+    private func pickRole(_ isConsultant: Bool) async {
+        _ = await wallet.setRole(userId: context.viewState.userID, isConsultant: isConsultant)
+        rolePicked = true
     }
     
     // MARK: - Private
@@ -38,7 +58,11 @@ struct HomeScreen: View {
             settingsButton
         }
         .backportSharedBackgroundVisibility(.hidden)
-        
+
+        ToolbarItem(placement: .principal) {
+            walletBadge
+        }
+
         ToolbarItem(placement: .primaryAction) {
             if #available(iOS 26, *) {
                 newRoomButton
@@ -46,6 +70,18 @@ struct HomeScreen: View {
                 newRoomButton
                     .buttonStyle(.compound(.super, size: .toolbarIcon))
             }
+        }
+    }
+
+    @ViewBuilder
+    private var walletBadge: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "creditcard.fill")
+                .font(.compound.bodySM)
+                .foregroundStyle(.secondary)
+            Text("\(wallet.credits ?? 0) credits")
+                .font(.compound.bodyMDSemibold)
+                .foregroundColor(.compound.textPrimary)
         }
     }
     
