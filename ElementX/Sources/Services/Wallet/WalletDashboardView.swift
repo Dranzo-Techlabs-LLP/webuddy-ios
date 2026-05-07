@@ -9,8 +9,8 @@ import Compound
 import SwiftUI
 
 /// Standalone wallet screen showing the current credit balance, an optional recharge action
-/// (clients only — recharge requires the Razorpay SDK which is not yet integrated), and the
-/// transaction history fetched from `/v1/wallet/history`. Mirrors the Android WalletScreen.
+/// (clients only), and the transaction history fetched from `/v1/wallet/history`. Mirrors the
+/// Android WalletScreen.
 struct WalletDashboardView: View {
     @ObservedObject var wallet: WalletService = ServiceLocator.shared.wallet
     let userID: String
@@ -19,6 +19,11 @@ struct WalletDashboardView: View {
     @State private var isLoading = false
     @State private var page = 1
     @State private var canLoadMore = true
+
+    @State private var showRechargeAmountPrompt = false
+    @State private var rechargeAmountString = ""
+    @State private var rechargeOrder: CreateOrderResponse?
+    @State private var rechargeError: String?
 
     var body: some View {
         Form {
@@ -34,16 +39,21 @@ struct WalletDashboardView: View {
                 .padding(.vertical, 8)
 
                 if wallet.isCurrentUserConsultant != true {
-                    // Only clients see Recharge.
+                    // Consultants don't recharge — they only receive credits.
                     Button {
-                        // TODO: Razorpay iOS SDK is not yet wired up. Surface a message for now.
+                        rechargeAmountString = ""
+                        showRechargeAmountPrompt = true
                     } label: {
                         Text("Recharge Credits")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(true)
-                    .help("Razorpay iOS SDK integration pending.")
+                }
+
+                if let error = rechargeError {
+                    Text(error)
+                        .font(.compound.bodySM)
+                        .foregroundStyle(Color.red)
                 }
             }
 
@@ -69,6 +79,21 @@ struct WalletDashboardView: View {
         .task {
             await wallet.refreshBalance(userId: userID)
             await refreshTransactions()
+        }
+        .alert("Recharge", isPresented: $showRechargeAmountPrompt) {
+            TextField("Amount", text: $rechargeAmountString)
+                .keyboardType(.numberPad)
+            Button("Continue") { Task { await beginRecharge() } }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Enter the number of credits you want to add.")
+        }
+        .sheet(item: $rechargeOrder) { order in
+            RazorpayCheckoutView(order: order,
+                                 userName: userID,
+                                 userContact: nil) { result in
+                Task { await handleRazorpay(result: result, order: order) }
+            }
         }
     }
 
@@ -96,6 +121,46 @@ struct WalletDashboardView: View {
             page = response.page
         }
     }
+
+    private func beginRecharge() async {
+        guard let amount = Double(rechargeAmountString), amount > 0 else { return }
+        rechargeError = nil
+        let result = await wallet.createOrder(userId: userID, amount: amount)
+        switch result {
+        case .success(let order):
+            rechargeOrder = order
+        case .failure(let error):
+            rechargeError = "Could not create order: \(error.localizedDescription)"
+        }
+    }
+
+    private func handleRazorpay(result: RazorpayResult, order: CreateOrderResponse) async {
+        rechargeOrder = nil
+        switch result {
+        case .success(let paymentId, let orderId, let signature):
+            let body = VerifyPaymentRequest(userId: userID,
+                                            transactionId: order.transactionId,
+                                            razorpayOrderId: orderId,
+                                            razorpayPaymentId: paymentId,
+                                            razorpaySignature: signature)
+            let verify = await wallet.verifyPayment(body)
+            if case .failure(let error) = verify {
+                rechargeError = "Verification failed: \(error.localizedDescription)"
+            } else {
+                await wallet.refreshBalance(userId: userID)
+                await refreshTransactions()
+            }
+        case .failure(_, let message):
+            rechargeError = "Payment failed: \(message)"
+        case .cancelled:
+            break
+        }
+    }
+}
+
+// `CreateOrderResponse` needs to be Identifiable so SwiftUI's `.sheet(item:)` can latch on.
+extension CreateOrderResponse: Identifiable {
+    var id: String { orderId }
 }
 
 private struct TransactionRow: View {
