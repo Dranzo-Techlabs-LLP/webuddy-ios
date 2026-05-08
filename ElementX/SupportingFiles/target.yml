@@ -106,6 +106,10 @@ targets:
           LSHandlerRank: Owner
           LSItemContentTypes: $(PILLS_UT_TYPE_IDENTIFIER)
         LSSupportsOpeningDocumentsInPlace: false
+        NSAppTransportSecurity:
+          NSExceptionDomains:
+            localhost:
+              NSExceptionAllowsInsecureHTTPLoads: true
 
     entitlements:
       path: ElementX.entitlements
