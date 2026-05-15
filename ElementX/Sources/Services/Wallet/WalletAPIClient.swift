@@ -81,6 +81,13 @@ struct WalletAPIClient {
         try await post("v1/refund/reject", body: RejectRefundBody(refundRequestId: refundRequestId))
     }
 
+    /// Bulk lookup: which clients currently have an open refund request directed at
+    /// `consultantId`? Returns matrix IDs only — the caller already knows which rooms
+    /// those map to in the chat list.
+    func pendingRefundsForConsultant(consultantId: String) async throws -> PendingRefundsForConsultantResponse {
+        try await get("v1/refund/pending-for-consultant?consultantId=\(percentEncode(consultantId))")
+    }
+
     // MARK: - Internals
 
     private func percentEncode(_ value: String) -> String {

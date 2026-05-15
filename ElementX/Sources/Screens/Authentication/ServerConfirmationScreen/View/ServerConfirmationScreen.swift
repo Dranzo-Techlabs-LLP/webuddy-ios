@@ -11,6 +11,7 @@ import SwiftUI
 
 struct ServerConfirmationScreen: View {
     @Bindable var context: ServerConfirmationScreenViewModel.Context
+    @ObservedObject private var wallet: WalletService = ServiceLocator.shared.wallet
     
     private var backgroundColor: Color {
         switch context.viewState.mode {
@@ -80,6 +81,11 @@ struct ServerConfirmationScreen: View {
                              selection: $context.pickerSelection)
                 .accessibilityIdentifier(A11yIdentifiers.serverConfirmationScreen.serverPicker)
         }
+        if context.viewState.authenticationFlow == .register {
+            RolePickerSection(isConsultant: wallet.pendingIsConsultant) { isConsultant in
+                wallet.setPendingIsConsultant(isConsultant)
+            }
+        }
     }
     
     /// The action buttons shown at the bottom of the view.
@@ -100,6 +106,75 @@ struct ServerConfirmationScreen: View {
                 .accessibilityIdentifier(A11yIdentifiers.serverConfirmationScreen.changeServer)
             }
         }
+    }
+}
+
+/// Role picker shown only on the account-creation flow. The selection is stored in
+/// `WalletService.pendingIsConsultant` and consumed by `ensureWalletUser` after login
+/// completes (mirrors Android `ConfirmAccountProviderPresenter` / `RustMatrixAuthenticationService`).
+private struct RolePickerSection: View {
+    let isConsultant: Bool
+    let onSelect: (Bool) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("I'll use Clariva as")
+                    .font(.compound.bodyLGSemibold)
+                    .foregroundColor(.compound.textPrimary)
+                Text("Normal users initiate paid chats with consultants. Keep the default if you're not sure.")
+                    .font(.compound.bodySM)
+                    .foregroundColor(.compound.textSecondary)
+            }
+            VStack(spacing: 0) {
+                RoleOptionRow(label: "Normal User",
+                              description: "Initiate paid chats and recharge your wallet.",
+                              selected: !isConsultant) { onSelect(false) }
+                Divider()
+                    .hidden()
+                    .overlay(Color.compound._borderInteractiveSecondaryAlpha)
+                    .padding(.leading, 16)
+                RoleOptionRow(label: "Consultant",
+                              description: "Receive paid chats from normal users.",
+                              selected: isConsultant) { onSelect(true) }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .background(Color.compound.bgCanvasDefaultLevel1, in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+}
+
+private struct RoleOptionRow: View {
+    let label: String
+    let description: String
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selected ? Color.compound.iconAccentTertiary : Color.compound.iconSecondary)
+                    .font(.system(size: 22))
+                    .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .font(.compound.bodyLGSemibold)
+                        .foregroundColor(.compound.textPrimary)
+                    Text(description)
+                        .font(.compound.bodySM)
+                        .foregroundColor(.compound.textSecondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

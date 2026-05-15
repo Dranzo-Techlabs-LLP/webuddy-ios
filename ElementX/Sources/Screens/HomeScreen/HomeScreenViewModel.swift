@@ -139,10 +139,19 @@ class HomeScreenViewModel: HomeScreenViewModelType, HomeScreenViewModelProtocol 
             .store(in: &cancellables)
         
         setupRoomListSubscriptions()
-        
+
         updateRooms()
+
+        // Kick off wallet sync for this session. refreshBalance resolves isCurrentUserConsultant
+        // from the API; only then does refreshPendingRefundRequests do anything for consultants
+        // (no-op for clients). Mirrors Android HomePresenter LaunchedEffect.
+        let userID = userSession.clientProxy.userID
+        Task {
+            await ServiceLocator.shared.wallet.refreshBalance(userId: userID)
+            await ServiceLocator.shared.wallet.refreshPendingRefundRequests(consultantUserId: userID)
+        }
     }
-    
+
     // MARK: - Public
     
     override func process(viewAction: HomeScreenViewAction) {

@@ -16,9 +16,7 @@ struct HomeScreen: View {
     @ObservedObject private var wallet: WalletService = ServiceLocator.shared.wallet
 
     @State private var scrollViewAdapter = ScrollViewAdapter()
-    @State private var rolePickerShown = false
     @State private var walletSheetShown = false
-    @AppStorage("webuddy.rolePicked") private var rolePicked = false
 
     var body: some View {
         HomeScreenContent(context: context, scrollViewAdapter: scrollViewAdapter)
@@ -34,15 +32,10 @@ struct HomeScreen: View {
             .sentryTrace("\(Self.self)")
             .task(id: context.viewState.userID) {
                 let userID = context.viewState.userID
+                // ensureWalletUser now consumes pendingIsConsultant set on the signup screen,
+                // so no post-login role popup is needed.
                 await wallet.ensureWalletUser(userId: userID, name: context.viewState.userDisplayName)
                 await wallet.refreshBalance(userId: userID)
-                if !rolePicked { rolePickerShown = true }
-            }
-            .alert("Choose your role", isPresented: $rolePickerShown) {
-                Button("I'm a Consultant") { Task { await pickRole(true) } }
-                Button("I'm a Normal User") { Task { await pickRole(false) } }
-            } message: {
-                Text("Tell us how you'll use Webuddy. This decides whether you can initiate paid chats.")
             }
             .sheet(isPresented: $walletSheetShown) {
                 NavigationStack {
@@ -56,11 +49,7 @@ struct HomeScreen: View {
             }
     }
 
-    private func pickRole(_ isConsultant: Bool) async {
-        _ = await wallet.setRole(userId: context.viewState.userID, isConsultant: isConsultant)
-        rolePicked = true
-    }
-    
+
     // MARK: - Private
         
     @ToolbarContentBuilder

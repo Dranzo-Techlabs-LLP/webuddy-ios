@@ -28,8 +28,11 @@ struct WalletUserResponse: Decodable {
         case isConsultant
     }
 
-    var currentHoldInt: Int { Int(Double(currentHold ?? "0") ?? 0) }
-    var maxCreditsInt: Int { Int(Double(maxCredits ?? "100") ?? 100) }
+    /// Parses the JSON string credits to Int. Returns nil when the field is absent or
+    /// unparseable so callers can preserve the last-known-good value instead of clobbering
+    /// it with a default (B4 fix mirrored from Android).
+    var currentHoldInt: Int? { currentHold.flatMap { Double($0).map(Int.init) } }
+    var maxCreditsInt: Int? { maxCredits.flatMap { Double($0).map(Int.init) } }
 }
 
 struct WalletCreateUserRequest: Encodable {
@@ -158,6 +161,19 @@ struct RejectRefundBody: Encodable {
 struct GenericRefundResponse: Decodable {
     let message: String?
     let amount: Double?
+}
+
+/// Response for GET v1/refund/pending-for-consultant — list of client matrix IDs
+/// that currently have an open refund request waiting on the given consultant.
+struct PendingRefundsForConsultantResponse: Decodable {
+    let clientIds: [String]
+
+    enum CodingKeys: String, CodingKey { case clientIds }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        clientIds = try container.decodeIfPresent([String].self, forKey: .clientIds) ?? []
+    }
 }
 
 enum WalletAPIError: Error {

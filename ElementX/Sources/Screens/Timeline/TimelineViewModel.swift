@@ -734,10 +734,22 @@ class TimelineViewModel: TimelineViewModelType, TimelineViewModelProtocol {
         case .recordVoiceMessage, .previewVoiceMessage:
             fatalError("invalid composer mode.")
         }
-        
+
+        initiateHoldIfNeeded()
+
         scrollToBottom()
     }
-        
+
+    /// Mirrors Android `MessageComposerPresenter.initiateHoldIfNeeded`. Fires a wallet
+    /// hold on every outgoing message in a DM; the server enforces the consultant filter
+    /// and the 24h (client, consultant) idempotency window.
+    private func initiateHoldIfNeeded() {
+        guard roomProxy.isDirectOneToOneRoom else { return }
+        let clientId = roomProxy.ownUserID
+        guard let otherUserID = roomProxy.membersPublisher.value.first(where: { $0.userID != clientId })?.userID else { return }
+        Task { await ServiceLocator.shared.wallet.initiateHold(clientId: clientId, consultantId: otherUserID) }
+    }
+
     private func trackComposerMode(_ mode: ComposerMode) {
         var isEdit = false
         var isReply = false

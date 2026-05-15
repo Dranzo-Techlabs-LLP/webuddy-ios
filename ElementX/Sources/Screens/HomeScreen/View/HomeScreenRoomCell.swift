@@ -79,14 +79,27 @@ struct HomeScreenRoomCell: View {
         }
     }
     
+    /// True iff the current user is a consultant AND this room's other party has an open
+    /// refund request awaiting decision. Drives the inline "Refund" pill in the chat list.
+    private var hasPendingRefundRequest: Bool {
+        guard wallet.isCurrentUserConsultant == true, let hero = room.heroUserID else { return false }
+        return wallet.pendingRefundRequestClients.contains(hero)
+    }
+
     @ViewBuilder
     private var header: some View {
         HStack(alignment: .top, spacing: 16) {
-            Text(room.name)
-                .font(.compound.bodyLGSemibold)
-                .foregroundColor(.compound.textPrimary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(alignment: .center, spacing: 8) {
+                Text(room.name)
+                    .font(.compound.bodyLGSemibold)
+                    .foregroundColor(.compound.textPrimary)
+                    .lineLimit(1)
+
+                if hasPendingRefundRequest {
+                    refundRequestedBadge
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(alignment: .trailing, spacing: 2) {
                 if let timestamp = room.timestamp {
@@ -109,6 +122,21 @@ struct HomeScreenRoomCell: View {
             }
             partnerCredits = await wallet.getMaxCredits(userId: hero)
         }
+    }
+
+    private var refundRequestedBadge: some View {
+        HStack(spacing: 4) {
+            CompoundIcon(\.infoSolid, size: .custom(12), relativeTo: .compound.bodyXS)
+                .foregroundStyle(.compound.textCriticalPrimary)
+            Text("Refund")
+                .font(.compound.bodyXSSemibold)
+                .foregroundColor(.compound.textCriticalPrimary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
+        .background(Color.compound.bgCriticalSubtle, in: Capsule())
+        .accessibilityLabel("Refund requested")
     }
     
     @ViewBuilder

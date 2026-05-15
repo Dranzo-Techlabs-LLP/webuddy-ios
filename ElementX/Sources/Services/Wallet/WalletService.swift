@@ -23,8 +23,17 @@ final class WalletService: ObservableObject {
     @Published private(set) var originalMaxCredits: Int?
     /// nil = unknown, false = normal user (client), true = consultant.
     @Published private(set) var isCurrentUserConsultant: Bool?
+    /// Set of client matrix IDs that currently have an open refund request awaiting this
+    /// consultant's decision. Powers the chat-list refund-pending badge.
+    @Published private(set) var pendingRefundRequestClients: Set<String> = []
+    /// Role selection captured on the signup screen, consumed when the wallet user is
+    /// created after login completes. Mirrors Android `WalletService.pendingIsConsultant`.
+    @Published private(set) var pendingIsConsultant: Bool = false
 
     private var maxCreditsCache: [String: Int] = [:]
+    /// Tracks the last user whose wallet was refreshed; on user change we flush stale
+    /// in-memory state so a previous account's data doesn't leak into the new session.
+    private var lastRefreshedUserId: String?
 
     init(baseURL: URL = WalletService.defaultBaseURL) {
         api = WalletAPIClient(baseURL: baseURL)
@@ -36,27 +45,72 @@ final class WalletService: ObservableObject {
         do {
             _ = try await api.getWallet(webuddyName: userId)
         } catch WalletAPIError.http(let status, _) where status == 404 {
-            // First time login — create the wallet user as a normal client by default.
-            _ = try? await api.createUser(name: name ?? userId, webuddyName: userId, isConsultant: 0)
+            // First-time login — create the wallet user using the role chosen on the
+            // signup screen (pendingIsConsultant; defaults to normal user = 0).
+            let isConsultant = pendingIsConsultant ? 1 : 0
+            _ = try? await api.createUser(name: name ?? userId, webuddyName: userId, isConsultant: isConsultant)
+            isCurrentUserConsultant = pendingIsConsultant
+            // Clear the pending flag so a subsequent login doesn't inherit stale state.
+            pendingIsConsultant = false
         } catch {
             MXLog.warning("[Wallet] ensureWalletUser failed: \(error)")
         }
     }
 
+    func setPendingIsConsultant(_ value: Bool) {
+        pendingIsConsultant = value
+    }
+
     func refreshBalance(userId: String) async {
+        // When the active user changes (account switch / logout+login), flush stale state
+        // before fetching the new user's data. Avoids the previous account's credits/role
+        // bleeding into the new session for the window between login and refresh completing.
+        if let previousUserId = lastRefreshedUserId, previousUserId != userId {
+            credits = nil
+            maxCredits = nil
+            originalMaxCredits = nil
+            isCurrentUserConsultant = nil
+            pendingRefundRequestClients = []
+            maxCreditsCache.removeAll()
+        }
+        lastRefreshedUserId = userId
+
         do {
             let response = try await api.getWallet(webuddyName: userId)
-            credits = response.currentHoldInt
-            maxCredits = response.maxCreditsInt
-            originalMaxCredits = response.maxCreditsInt
+            // Only overwrite credits / maxCredits on a real parsed value; never clobber the
+            // last-known-good value with nil from a partial response.
+            if let parsed = response.currentHoldInt { credits = parsed }
+            if let parsedMax = response.maxCreditsInt {
+                maxCredits = parsedMax
+                originalMaxCredits = parsedMax
+                maxCreditsCache[userId] = parsedMax
+            }
             if let role = response.isConsultant {
                 isCurrentUserConsultant = role == 1
             }
-            maxCreditsCache[userId] = response.maxCreditsInt
         } catch {
             MXLog.warning("[Wallet] refreshBalance failed: \(error)")
+            // Only seed defaults when we have no value at all; preserve known-good values.
             if credits == nil { credits = 0 }
             if maxCredits == nil { maxCredits = 100; originalMaxCredits = 100 }
+        }
+    }
+
+    /// Refresh the set of clients with an open refund request awaiting this consultant.
+    /// No-op (and clears the set) if the current user is not a consultant — the chat-list
+    /// badge only renders for consultants.
+    func refreshPendingRefundRequests(consultantUserId: String) async {
+        guard isCurrentUserConsultant == true else {
+            pendingRefundRequestClients = []
+            return
+        }
+        do {
+            let response = try await api.pendingRefundsForConsultant(consultantId: consultantUserId)
+            pendingRefundRequestClients = Set(response.clientIds)
+        } catch {
+            // Leave the previous value untouched on transient failure — better to show a
+            // stale badge than to clear correct state because of one network blip.
+            MXLog.warning("[Wallet] refreshPendingRefundRequests failed: \(error)")
         }
     }
 
@@ -90,7 +144,9 @@ final class WalletService: ObservableObject {
         if let cached = maxCreditsCache[userId] { return cached }
         do {
             let response = try await api.getWallet(webuddyName: userId)
-            maxCreditsCache[userId] = response.maxCreditsInt
+            if let parsed = response.maxCreditsInt {
+                maxCreditsCache[userId] = parsed
+            }
             return response.maxCreditsInt
         } catch {
             return nil
