@@ -150,7 +150,27 @@ class HomeScreenViewModel: HomeScreenViewModelType, HomeScreenViewModelProtocol 
             await ServiceLocator.shared.wallet.refreshBalance(userId: userID)
             await ServiceLocator.shared.wallet.refreshPendingRefundRequests(consultantUserId: userID)
         }
+        // Keep the chat-list refund badge near-real-time. Until we have push for refund events,
+        // this polls /v1/refund/pending-for-consultant every 8s so a new request from a client
+        // lands on the consultant's chat list within seconds — not "next time you reopen the
+        // app." WalletService.refreshPendingRefundRequests short-circuits to a no-op when the
+        // user is not a consultant, so running the loop unconditionally is safe. Mirrors
+        // Android HomePresenter LaunchedEffect at 8s cadence.
+        refundBadgePollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 8 * 1_000_000_000)
+                if Task.isCancelled { return }
+                guard self != nil else { return }
+                await ServiceLocator.shared.wallet.refreshPendingRefundRequests(consultantUserId: userID)
+            }
+        }
     }
+
+    deinit {
+        refundBadgePollTask?.cancel()
+    }
+
+    private var refundBadgePollTask: Task<Void, Never>?
 
     // MARK: - Public
     

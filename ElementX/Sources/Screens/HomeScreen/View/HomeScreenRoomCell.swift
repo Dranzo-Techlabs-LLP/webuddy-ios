@@ -107,8 +107,13 @@ struct HomeScreenRoomCell: View {
                         .font(room.isHighlighted ? .compound.bodySMSemibold : .compound.bodySM)
                         .foregroundColor(room.isHighlighted ? .compound.textActionAccent : .compound.textSecondary)
                 }
-                // Per-row max-credits is the consultant's price tag — only clients see it.
-                if let credits = partnerCredits, wallet.isCurrentUserConsultant != true {
+                // Per-row max-credits is the chat partner's rate. It only makes sense to
+                // display when the OTHER party is a consultant — clients don't have a chat rate.
+                // This holds regardless of whether the local user is a client (sees what they'll
+                // pay) or a consultant (sees the peer consultant's rate; no-op for self-billing
+                // where the peer is the same role). The rate-or-nil decision is centralised in
+                // WalletService.getRecipientChatRate so the gating is consistent app-wide.
+                if let credits = partnerCredits {
                     Text("\(credits) credits")
                         .font(.compound.bodySMSemibold)
                         .foregroundColor(.compound.textSecondary)
@@ -116,11 +121,11 @@ struct HomeScreenRoomCell: View {
             }
         }
         .task(id: room.heroUserID) {
-            guard let hero = room.heroUserID, wallet.isCurrentUserConsultant != true else {
+            guard let hero = room.heroUserID else {
                 partnerCredits = nil
                 return
             }
-            partnerCredits = await wallet.getMaxCredits(userId: hero)
+            partnerCredits = await wallet.getRecipientChatRate(userId: hero)
         }
     }
 

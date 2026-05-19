@@ -31,6 +31,11 @@ final class WalletService: ObservableObject {
     @Published private(set) var pendingIsConsultant: Bool = false
 
     private var maxCreditsCache: [String: Int] = [:]
+    /// Per-user `isConsultant` cache populated as a side-effect of `getMaxCredits`. Used by
+    /// `getRecipientChatRate` to decide whether to render the chat-list per-row credits: only
+    /// a consultant has a chat rate; client-to-client and consultant-side-viewing-a-client
+    /// rooms stay blank. Mirrors Android `WalletService.isConsultantCache`.
+    private var isConsultantCache: [String: Bool] = [:]
     /// Tracks the last user whose wallet was refreshed; on user change we flush stale
     /// in-memory state so a previous account's data doesn't leak into the new session.
     private var lastRefreshedUserId: String?
@@ -72,6 +77,7 @@ final class WalletService: ObservableObject {
             isCurrentUserConsultant = nil
             pendingRefundRequestClients = []
             maxCreditsCache.removeAll()
+            isConsultantCache.removeAll()
         }
         lastRefreshedUserId = userId
 
@@ -140,6 +146,13 @@ final class WalletService: ObservableObject {
         maxCredits = value
     }
 
+    /// Fetch the wallet info for `userId` — which may be a different user than the locally
+    /// logged-in account. Populates `maxCreditsCache` and `isConsultantCache` as side effects.
+    ///
+    /// MUST NOT touch `maxCredits` / `originalMaxCredits`: those track the LOCAL user's own
+    /// settings and are owned by `refreshBalance`. Writing every queried recipient's
+    /// max_credits into the local state would corrupt the consultant's own rate every time
+    /// the chat list looked up a chat partner.
     func getMaxCredits(userId: String) async -> Int? {
         if let cached = maxCreditsCache[userId] { return cached }
         do {
@@ -147,10 +160,23 @@ final class WalletService: ObservableObject {
             if let parsed = response.maxCreditsInt {
                 maxCreditsCache[userId] = parsed
             }
+            if let role = response.isConsultant {
+                isConsultantCache[userId] = role == 1
+            }
             return response.maxCreditsInt
         } catch {
             return nil
         }
+    }
+
+    /// Returns `userId`'s chat rate (their `max_credits`) ONLY if they are a consultant.
+    /// For clients (or unknown role) returns `nil` — clients don't have a rate, so the
+    /// chat-list row stays blank rather than showing a meaningless number. Mirrors Android
+    /// `WalletService.getRecipientChatRate`.
+    func getRecipientChatRate(userId: String) async -> Int? {
+        // getMaxCredits is cache-first and populates both caches as a side effect.
+        let maxCreditsValue = await getMaxCredits(userId: userId)
+        return isConsultantCache[userId] == true ? maxCreditsValue : nil
     }
 
     // MARK: - Recharge
