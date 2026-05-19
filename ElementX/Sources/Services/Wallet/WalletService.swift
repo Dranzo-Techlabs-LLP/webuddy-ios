@@ -218,18 +218,38 @@ final class WalletService: ObservableObject {
 
     // MARK: - Refunds
 
-    func requestRefund(clientId: String, consultantId: String, pendingHoldId: String) async -> Result<GenericRefundResponse, Error> {
+    func requestRefund(clientId: String, consultantId: String, pendingHoldId: String) async -> Result<RefundResponse, Error> {
         do { return .success(try await api.requestRefund(clientId: clientId, consultantId: consultantId, pendingHoldId: pendingHoldId)) }
         catch { return .failure(error) }
     }
 
     func approveRefund(refundRequestId: String, pendingHoldId: String) async -> Result<GenericRefundResponse, Error> {
-        do { return .success(try await api.approveRefund(refundRequestId: refundRequestId, pendingHoldId: pendingHoldId)) }
-        catch { return .failure(error) }
+        do {
+            let response = try await api.approveRefund(refundRequestId: refundRequestId, pendingHoldId: pendingHoldId)
+            return .success(response)
+        } catch { return .failure(error) }
     }
 
     func rejectRefund(refundRequestId: String) async -> Result<GenericRefundResponse, Error> {
         do { return .success(try await api.rejectRefund(refundRequestId: refundRequestId)) }
         catch { return .failure(error) }
+    }
+
+    /// Try to atomically claim the right to post the in-room Matrix push-notification message
+    /// for an auto-approved refund.
+    ///
+    /// Returns `true` if THIS device won the claim and should send the message. Returns
+    /// `false` if another device already claimed it (do not send, the room is covered)
+    /// OR if the network call failed (do not send to avoid duplicates on retry). Mirrors
+    /// Android `WalletService.claimAutoApprovalNotification`.
+    func claimAutoApprovalNotification(refundRequestId: Int, callerUserId: String) async -> Bool {
+        do {
+            let response = try await api.claimAutoApprovalNotification(refundRequestId: String(refundRequestId),
+                                                                       callerUserId: callerUserId)
+            return response.claimed
+        } catch {
+            MXLog.warning("[Wallet] claimAutoApprovalNotification failed for \(refundRequestId): \(error); skipping send")
+            return false
+        }
     }
 }

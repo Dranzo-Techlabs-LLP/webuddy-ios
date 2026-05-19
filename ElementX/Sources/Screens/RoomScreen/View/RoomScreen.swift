@@ -10,6 +10,46 @@ import Compound
 import SwiftUI
 import WysiwygComposer
 
+/// Consultant-facing banner shown at the top of a DM when the client has requested a refund
+/// of the active wallet hold. Offers Approve / Reject actions. Mirrors Android
+/// `MessagesViewTopBar`'s refund affordance — rendered as an inline top banner since iOS has
+/// no equivalent top-bar action slot for the two-button confirmation pair.
+private struct RefundRequestBanner: View {
+    let isApproveDisabled: Bool
+    let isRejectDisabled: Bool
+    let onApprove: () -> Void
+    let onReject: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            CompoundIcon(\.infoSolid, size: .medium, relativeTo: .compound.bodyMD)
+                .foregroundStyle(Color.compound.iconCriticalPrimary)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Refund requested")
+                    .font(.compound.bodyMDSemibold)
+                    .foregroundColor(.compound.textPrimary)
+                Text("The client is asking for the held credits back. Approve to return them now, or reject to keep the hold in place.")
+                    .font(.compound.bodySM)
+                    .foregroundColor(.compound.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    Button(action: onReject) { Text("Reject") }
+                        .buttonStyle(.compound(.secondary, size: .medium))
+                        .disabled(isRejectDisabled)
+                    Button(action: onApprove) { Text("Approve") }
+                        .buttonStyle(.compound(.primary, size: .medium))
+                        .disabled(isApproveDisabled)
+                }
+                .padding(.top, 4)
+            }
+        }
+        .padding(12)
+        .background(Color.compound.bgCriticalSubtle, in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
 struct RoomScreen: View {
     @ObservedObject private var context: RoomScreenViewModelType.Context
     @ObservedObject private var timelineContext: TimelineViewModelType.Context
@@ -36,6 +76,7 @@ struct RoomScreen: View {
             .topBanner(pinnedItemsBanner, isVisible: context.viewState.shouldShowPinnedEventsBanner && !isVoiceOverEnabled)
             // This can overlay on top of the pinnedItemsBanner
             .topBanner(knockRequestsBanner, isVisible: context.viewState.shouldSeeKnockRequests)
+            .topBanner(refundBanner, isVisible: shouldShowRefundBanner)
             .safeAreaInset(edge: .top) {
                 // When VoiceOver is enabled, the table view isn't reversed and the scroll gestures
                 // don't trigger meaning the banner never hides itself and so the .overlay layout
@@ -70,6 +111,29 @@ struct RoomScreen: View {
             .timelineMediaPreview(viewModel: $context.mediaPreviewViewModel)
             .track(screen: .Room)
             .sentryTrace("\(Self.self)")
+            .overlay(alignment: .top) { refundSnackbar }
+    }
+
+    /// Chat-local refund snackbar (request-sent / approved / rejected / error). Bypasses the
+    /// global UserIndicatorController so the toast stays bound to this room — mirrors
+    /// Android's chat-local SharedFlow approach so it doesn't leak onto the chat list
+    /// scaffold when the user navigates back quickly.
+    @ViewBuilder
+    private var refundSnackbar: some View {
+        if let message = context.viewState.refundSnackbar {
+            Text(message)
+                .font(.compound.bodyMDSemibold)
+                .foregroundColor(.compound.textOnSolidPrimary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(Color.compound.bgActionPrimaryRest, in: Capsule())
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .task(id: message) {
+                    try? await Task.sleep(nanoseconds: 2_500_000_000)
+                    context.send(viewAction: .clearRefundSnackbar)
+                }
+        }
     }
     
     @ViewBuilder
@@ -77,6 +141,24 @@ struct RoomScreen: View {
         PinnedItemsBannerView(state: context.viewState.pinnedEventsBannerState,
                               onMainButtonTap: { context.send(viewAction: .tappedPinnedEventsBanner) },
                               onViewAllButtonTap: { context.send(viewAction: .viewAllPins) })
+    }
+
+    /// True iff a refund request is awaiting decision AND the local user is the consultant
+    /// in this DM (server-authoritative). Banner offers Approve / Reject buttons.
+    private var shouldShowRefundBanner: Bool {
+        context.viewState.isConsultantInThisRoom &&
+            context.viewState.refundStatus == "requested" &&
+            context.viewState.refundRequestId != nil
+    }
+
+    @ViewBuilder
+    private var refundBanner: some View {
+        RefundRequestBanner(isApproveDisabled: context.viewState.isRefundRequestInProgress,
+                            isRejectDisabled: context.viewState.isRefundRequestInProgress,
+                            onApprove: { context.send(viewAction: .approveRefund) },
+                            onReject: { context.send(viewAction: .rejectRefund) })
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
     }
     
     @ViewBuilder
@@ -175,6 +257,34 @@ struct RoomScreen: View {
                 }
             }
         }
+
+        // Client-side "Request refund" toolbar button. Mirrors Android `MessagesViewTopBar`
+        // refund action — shown only when an active hold exists, the local user is the
+        // client side of that hold, and no refund decision has been recorded yet.
+        if shouldShowRequestRefundButton {
+            ToolbarItem(placement: .primaryAction) {
+                requestRefundButton
+            }
+        }
+    }
+
+    /// Client-side: active hold + not yet decided + I am NOT the consultant on this hold.
+    private var shouldShowRequestRefundButton: Bool {
+        context.viewState.isRefundButtonVisible &&
+            context.viewState.refundStatus != "requested" &&
+            context.viewState.refundStatus != "approved" &&
+            context.viewState.refundStatus != "rejected" &&
+            !context.viewState.isConsultantInThisRoom
+    }
+
+    private var requestRefundButton: some View {
+        Button {
+            context.send(viewAction: .requestRefund)
+        } label: {
+            CompoundIcon(\.restart)
+        }
+        .disabled(context.viewState.isRefundRequestInProgress)
+        .accessibilityLabel("Request refund")
     }
     
     @ViewBuilder

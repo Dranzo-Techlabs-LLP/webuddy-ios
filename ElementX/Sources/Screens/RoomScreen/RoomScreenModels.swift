@@ -31,6 +31,15 @@ enum RoomScreenViewAction {
     case dismissKnockRequests
     case viewKnockRequests
     case displaySuccessorRoom
+    /// Client taps "Request refund" on the consultant chat (only valid when an active hold
+    /// exists and refund hasn't been requested yet). Mirrors Android `MessagesEvents.RequestRefund`.
+    case requestRefund
+    /// Consultant taps "Approve" on the refund banner. Mirrors Android `ApproveRefund`.
+    case approveRefund
+    /// Consultant taps "Reject" on the refund banner. Mirrors Android `RejectRefund`.
+    case rejectRefund
+    /// Snackbar consumed; clear it so the next refund event can show one.
+    case clearRefundSnackbar
 }
 
 struct RoomScreenViewState: BindableState {
@@ -82,6 +91,25 @@ struct RoomScreenViewState: BindableState {
     
     var identityViolationDetails: RoomScreenFooterViewDetails?
     var historyVisibleDetails: RoomScreenFooterViewDetails?
+
+    // MARK: Refund state (mirrors Android `MessagesState` refund fields)
+    /// Server-reported refund status: nil / "none" / "requested" / "approved" / "rejected".
+    /// Drives banner and button visibility.
+    var refundStatus: String?
+    /// Pending hold row id needed to invoke approveRefund. nil until poll resolves.
+    var refundPendingHoldId: String?
+    /// Refund request row id needed to approve/reject. Non-nil only when refundStatus == requested.
+    var refundRequestId: String?
+    /// Whether the local user is the consultant on this DM hold (server-authoritative —
+    /// derived from `consultantId` returned by /pending-holds/status, not local role flag).
+    var isConsultantInThisRoom = false
+    /// Whether the refund-request action affordance should render for the client.
+    /// True iff an active hold exists; goes false once the refund is approved/rejected.
+    var isRefundButtonVisible = false
+    /// In-flight refund action — disables buttons + skips re-entry.
+    var isRefundRequestInProgress = false
+    /// One-shot snackbar message rendered above the composer.
+    var refundSnackbar: String?
     
     var footerDetails: RoomScreenFooterViewDetails? {
         if let identityViolationDetails {

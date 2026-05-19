@@ -130,6 +130,12 @@ struct PendingHoldStatusResponse: Decodable {
     let clientId: String?
     let consultantId: String?
     let refundRequestId: Int?
+    /// Populated by the server when the cron auto-approved a refund and the in-room
+    /// Matrix push-notification still needs to be sent. Whichever app sees this first
+    /// calls `POST /v1/refund/auto-approval-claim/:id` to atomically claim the right
+    /// to send the m.room.message that triggers the OTHER party's push notification.
+    /// Null when there's nothing to announce.
+    let pendingAutoApprovalNotification: PendingAutoApprovalNotification?
 
     enum CodingKeys: String, CodingKey {
         case exists
@@ -140,7 +146,26 @@ struct PendingHoldStatusResponse: Decodable {
         case clientId
         case consultantId
         case refundRequestId
+        case pendingAutoApprovalNotification
     }
+
+    var holdIdString: String? { pendingHoldId.map(String.init) }
+    var refundRequestIdString: String? { refundRequestId.map(String.init) }
+}
+
+struct PendingAutoApprovalNotification: Decodable {
+    let refundRequestId: Int
+    let amount: Double
+    let clientId: String
+    let consultantId: String
+}
+
+struct ClaimAutoApprovalBody: Encodable {
+    let userId: String
+}
+
+struct ClaimAutoApprovalResponse: Decodable {
+    let claimed: Bool
 }
 
 struct RefundRequestBody: Encodable {
@@ -161,6 +186,17 @@ struct RejectRefundBody: Encodable {
 struct GenericRefundResponse: Decodable {
     let message: String?
     let amount: Double?
+}
+
+/// Response from `POST /v1/refund/request`. The server returns `{ message, refundRequestId }`
+/// — there is NO `success` field. Marking `success` as a required non-nullable Bool would make
+/// every successful refund-request response throw a decoding error, which the catch handler
+/// would turn into Result.failure → "Error" snackbar even though the row had been inserted
+/// server-side. All fields optional; presence of [message] indicates a non-error response.
+/// Mirrors Android `RefundResponse` post-c980878.
+struct RefundResponse: Decodable {
+    let message: String?
+    let refundRequestId: Int?
 }
 
 /// Response for GET v1/refund/pending-for-consultant — list of client matrix IDs

@@ -69,7 +69,9 @@ struct WalletAPIClient {
 
     // MARK: - Refunds
 
-    func requestRefund(clientId: String, consultantId: String, pendingHoldId: String) async throws -> GenericRefundResponse {
+    /// Returns the server's `{ message, refundRequestId }` payload. There is intentionally NO
+    /// `success: Bool` field in the response shape — see `RefundResponse` doc comment.
+    func requestRefund(clientId: String, consultantId: String, pendingHoldId: String) async throws -> RefundResponse {
         try await post("v1/refund/request", body: RefundRequestBody(clientId: clientId, consultantId: consultantId, pendingHoldId: pendingHoldId))
     }
 
@@ -86,6 +88,15 @@ struct WalletAPIClient {
     /// those map to in the chat list.
     func pendingRefundsForConsultant(consultantId: String) async throws -> PendingRefundsForConsultantResponse {
         try await get("v1/refund/pending-for-consultant?consultantId=\(percentEncode(consultantId))")
+    }
+
+    /// Atomic claim for the in-room Matrix push-notification on an auto-approved refund.
+    /// Server returns `{ claimed: true }` exactly once across all callers — the first app to
+    /// claim wins the right to post the `m.room.message`; later calls return `{ claimed: false }`
+    /// and the caller MUST skip the send so the room doesn't get duplicate notifications.
+    func claimAutoApprovalNotification(refundRequestId: String, callerUserId: String) async throws -> ClaimAutoApprovalResponse {
+        try await post("v1/refund/auto-approval-claim/\(percentEncode(refundRequestId))",
+                       body: ClaimAutoApprovalBody(userId: callerUserId))
     }
 
     // MARK: - Internals

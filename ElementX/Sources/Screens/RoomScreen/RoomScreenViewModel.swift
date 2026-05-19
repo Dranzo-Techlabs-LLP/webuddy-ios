@@ -76,11 +76,28 @@ class RoomScreenViewModel: RoomScreenViewModelType, RoomScreenViewModelProtocol 
         
         updateRoomInfo(roomProxy.infoPublisher.value)
         setupSubscriptions(ongoingCallRoomIDPublisher: ongoingCallRoomIDPublisher)
-        
+
         Task {
             await updateVerificationBadge()
         }
+
+        // Refund / pending-hold status loop: poll the server every 15s while the room is open,
+        // mirror Android MessagesPresenter LaunchedEffect. Drives banner visibility, button
+        // gating, and the auto-approval push-notification claim flow. Cancelled in deinit.
+        refundPollTask = Task { [weak self] in
+            await self?.runRefundPollLoop()
+        }
     }
+
+    deinit {
+        refundPollTask?.cancel()
+    }
+
+    private var refundPollTask: Task<Void, Never>?
+    /// Local dedupe of refund-request ids we've already reacted to during this session.
+    /// Mirrors Android `notifiedRefundRequestIds` — keeps us from pounding the
+    /// auto-approval claim endpoint on every 15s tick.
+    private var notifiedRefundRequestIds: Set<String> = []
 
     override func process(viewAction: RoomScreenViewAction) {
         switch viewAction {
@@ -115,6 +132,190 @@ class RoomScreenViewModel: RoomScreenViewModelType, RoomScreenViewModelProtocol 
             guard let successorID = roomProxy.infoPublisher.value.successor?.roomId else { return }
             let serverNames = roomProxy.knownServerNames(maxCount: 50) // Limit to the same number used by ClientProxy.resolveRoomAlias(_:)
             actionsSubject.send(.displayRoom(roomID: successorID, via: Array(serverNames)))
+        case .requestRefund:
+            handleRequestRefund()
+        case .approveRefund:
+            handleApproveRefund()
+        case .rejectRefund:
+            handleRejectRefund()
+        case .clearRefundSnackbar:
+            state.refundSnackbar = nil
+        }
+    }
+
+    // MARK: - Refund
+
+    /// Hardcoded mirror of Android `screen_messages_refund_*` resources (which are
+    /// `translatable="false"`). Body text shown both in the chat history audit row AND on
+    /// the lockscreen push preview, so emoji-prefixed for scannability.
+    private static let refundRequestNotificationBody = "🔔 Refund requested for the held credits"
+    private static let refundApprovedNotificationBody = "✅ Your refund was approved — credits returned to your wallet"
+    private static let refundRejectedNotificationBody = "❌ Your refund was rejected by the consultant"
+    private static let refundAutoApprovedNotificationBody = "⚙️ Refund auto-approved after 24h with no response — credits returned to the client"
+
+    /// 15s poll mirroring Android MessagesPresenter LaunchedEffect.
+    private func runRefundPollLoop() async {
+        while !Task.isCancelled {
+            await pollPendingHoldStatusOnce()
+            try? await Task.sleep(nanoseconds: 15 * 1_000_000_000)
+        }
+    }
+
+    private func partnerUserID() -> String? {
+        guard roomProxy.isDirectOneToOneRoom else { return nil }
+        let myID = roomProxy.ownUserID
+        return roomProxy.membersPublisher.value.first { $0.userID != myID }?.userID
+    }
+
+    private func pollPendingHoldStatusOnce() async {
+        guard roomProxy.isDirectOneToOneRoom, let partnerId = partnerUserID() else {
+            await MainActor.run {
+                state.isRefundButtonVisible = false
+                state.refundStatus = nil
+                state.refundPendingHoldId = nil
+                state.refundRequestId = nil
+            }
+            return
+        }
+        let myUserId = roomProxy.ownUserID
+        let wallet: WalletService = ServiceLocator.shared.wallet
+        guard let status = await wallet.getPendingHoldStatus(clientId: myUserId, consultantId: partnerId) else {
+            return
+        }
+        // Server bidirectional lookup: my role is determined by whether the hold's consultantId == me.
+        let amConsultant = status.consultantId != nil && status.consultantId == myUserId
+        await MainActor.run {
+            state.isConsultantInThisRoom = amConsultant
+            if status.exists && (status.isRefundActive ?? 1) == 1 {
+                state.refundStatus = status.refundStatus
+                state.refundPendingHoldId = status.holdIdString
+                state.refundRequestId = status.refundRequestIdString
+                state.isRefundButtonVisible = true
+                if amConsultant, status.refundStatus == "requested", let reqId = status.refundRequestIdString {
+                    notifiedRefundRequestIds.insert(reqId)
+                }
+            } else {
+                state.isRefundButtonVisible = false
+                state.refundStatus = nil
+                state.refundPendingHoldId = nil
+                state.refundRequestId = nil
+            }
+        }
+        // Auto-approval push-notification pickup. First app to observe the
+        // pendingAutoApprovalNotification + win the atomic claim posts the in-room
+        // m.room.message; the other party (likely app-closed) gets the push via the
+        // standard homeserver → Sygnal → APNs pipeline. Best-effort: claim or send
+        // failure does NOT roll back the refund — credits are already returned.
+        if let pending = status.pendingAutoApprovalNotification {
+            let idString = String(pending.refundRequestId)
+            if !notifiedRefundRequestIds.contains(idString) {
+                notifiedRefundRequestIds.insert(idString)
+                let claimed = await wallet.claimAutoApprovalNotification(refundRequestId: pending.refundRequestId,
+                                                                          callerUserId: myUserId)
+                if claimed {
+                    _ = await roomProxy.timeline.sendMessage(Self.refundAutoApprovedNotificationBody,
+                                                             html: nil,
+                                                             inReplyToEventID: nil,
+                                                             intentionalMentions: .empty)
+                    MXLog.info("[Refund] Posted auto-approval Matrix message for refund \(idString)")
+                } else {
+                    MXLog.info("[Refund] Auto-approval claim lost for refund \(idString) (other side announced)")
+                }
+            }
+        }
+    }
+
+    private func handleRequestRefund() {
+        if state.isRefundRequestInProgress { return }
+        guard let holdId = state.refundPendingHoldId, let partnerId = partnerUserID() else {
+            MXLog.warning("[Refund] Cannot request refund: holdId=\(state.refundPendingHoldId ?? "nil"), partner=\(partnerUserID() ?? "nil")")
+            return
+        }
+        state.isRefundRequestInProgress = true
+        let myId = roomProxy.ownUserID
+        Task { [weak self] in
+            guard let self else { return }
+            let wallet: WalletService = ServiceLocator.shared.wallet
+            let result = await wallet.requestRefund(clientId: myId, consultantId: partnerId, pendingHoldId: holdId)
+            switch result {
+            case .success:
+                await MainActor.run {
+                    self.state.refundStatus = "requested"
+                    self.state.refundSnackbar = "Refund request sent"
+                }
+                _ = await self.roomProxy.timeline.sendMessage(Self.refundRequestNotificationBody,
+                                                              html: nil,
+                                                              inReplyToEventID: nil,
+                                                              intentionalMentions: .empty)
+            case .failure(let error):
+                MXLog.error("[Refund] requestRefund failed: \(error)")
+                await MainActor.run { self.state.refundSnackbar = L10n.commonError }
+            }
+            await MainActor.run { self.state.isRefundRequestInProgress = false }
+        }
+    }
+
+    private func handleApproveRefund() {
+        if state.isRefundRequestInProgress { return }
+        guard let reqId = state.refundRequestId, let holdId = state.refundPendingHoldId else {
+            MXLog.warning("[Refund] Cannot approve: reqId=\(state.refundRequestId ?? "nil") holdId=\(state.refundPendingHoldId ?? "nil")")
+            return
+        }
+        state.isRefundRequestInProgress = true
+        let myId = roomProxy.ownUserID
+        Task { [weak self] in
+            guard let self else { return }
+            let wallet: WalletService = ServiceLocator.shared.wallet
+            let result = await wallet.approveRefund(refundRequestId: reqId, pendingHoldId: holdId)
+            switch result {
+            case .success:
+                await MainActor.run {
+                    self.state.refundStatus = "approved"
+                    self.state.isRefundButtonVisible = false
+                    self.state.refundSnackbar = "Refund approved"
+                }
+                // Drop the chat-list pending-refund badge for this client. Mirrors Android.
+                await wallet.refreshPendingRefundRequests(consultantUserId: myId)
+                _ = await self.roomProxy.timeline.sendMessage(Self.refundApprovedNotificationBody,
+                                                              html: nil,
+                                                              inReplyToEventID: nil,
+                                                              intentionalMentions: .empty)
+            case .failure(let error):
+                MXLog.error("[Refund] approveRefund failed: \(error)")
+                await MainActor.run { self.state.refundSnackbar = L10n.commonError }
+            }
+            await MainActor.run { self.state.isRefundRequestInProgress = false }
+        }
+    }
+
+    private func handleRejectRefund() {
+        if state.isRefundRequestInProgress { return }
+        guard let reqId = state.refundRequestId else {
+            MXLog.warning("[Refund] Cannot reject: reqId is nil")
+            return
+        }
+        state.isRefundRequestInProgress = true
+        let myId = roomProxy.ownUserID
+        Task { [weak self] in
+            guard let self else { return }
+            let wallet: WalletService = ServiceLocator.shared.wallet
+            let result = await wallet.rejectRefund(refundRequestId: reqId)
+            switch result {
+            case .success:
+                await MainActor.run {
+                    self.state.refundStatus = "rejected"
+                    self.state.refundSnackbar = "Refund rejected"
+                }
+                await wallet.refreshPendingRefundRequests(consultantUserId: myId)
+                _ = await self.roomProxy.timeline.sendMessage(Self.refundRejectedNotificationBody,
+                                                              html: nil,
+                                                              inReplyToEventID: nil,
+                                                              intentionalMentions: .empty)
+            case .failure(let error):
+                MXLog.error("[Refund] rejectRefund failed: \(error)")
+                await MainActor.run { self.state.refundSnackbar = L10n.commonError }
+            }
+            await MainActor.run { self.state.isRefundRequestInProgress = false }
         }
     }
     
