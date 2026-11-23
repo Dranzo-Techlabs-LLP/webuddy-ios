@@ -226,6 +226,11 @@ class AppCoordinator: AppCoordinatorProtocol, AuthenticationFlowCoordinatorDeleg
     }
 
     func handleDeepLink(_ url: URL, isExternalURL: Bool) -> Bool {
+        // Clariva: Google Sign-In's OAuth redirect must be handled before anything else.
+        if GoogleSignInService.handle(url) {
+            return true
+        }
+        
         // Parse into an AppRoute to redirect these in a type safe way.
         
         if let route = appRouteURLParser.route(from: url) {
@@ -290,22 +295,31 @@ class AppCoordinator: AppCoordinatorProtocol, AuthenticationFlowCoordinatorDeleg
     }
     
     func handleUserActivity(_ userActivity: NSUserActivity) {
-        // `INStartVideoCallIntent` is to be replaced with `INStartCallIntent`
-        // but calls from Recents still send it ¯\_(ツ)_/¯
-        guard let intent = userActivity.interaction?.intent as? INStartVideoCallIntent,
-              let contact = intent.contacts?.first,
-              let roomIdentifier = contact.personHandle?.value else {
+        // Recents redials (`INStartCallIntent`, `INStartVideoCallIntent`, `INStartAudioCallIntent`).
+        guard let request = userActivity.callIntentRequest else {
             MXLog.error("Failed retrieving information from userActivity: \(userActivity)")
             return
         }
         
-        MXLog.info("Starting call in room: \(roomIdentifier)")
-        handleAppRoute(AppRoute.call(roomID: roomIdentifier))
+        // Clariva: a voice redial starts camera-off, a video one camera-on.
+        if let startWithVideoMuted = request.startWithVideoMuted {
+            CallMediaChoiceStore.shared.setStartWithVideoMuted(startWithVideoMuted, for: request.roomID)
+        }
+        
+        MXLog.info("Starting call in room: \(request.roomID)")
+        handleAppRoute(AppRoute.call(roomID: request.roomID))
     }
     
     // MARK: - AuthenticationFlowCoordinatorDelegate
     
-    func authenticationFlowCoordinator(didLoginWithSession userSession: UserSessionProtocol) {
+    func authenticationFlowCoordinator(didLoginWithSession userSession: UserSessionProtocol, recoveryPassphrase: String?) {
+        // Clariva: keep the server-provided key storage passphrase until this device has unlocked key
+        // storage with it. `setupUserSession` (run for this new login and on every later launch) does
+        // the unlock, so an interrupted unlock resumes instead of leaving the device without history.
+        if let recoveryPassphrase {
+            ClarivaRecoveryPassphraseStore().savePassphrase(recoveryPassphrase, for: userSession.clientProxy.userID)
+        }
+        
         self.userSession = userSession
         authenticationFlowCoordinator = nil
         stateMachine.processEvent(.createdUserSession)
@@ -392,6 +406,8 @@ class AppCoordinator: AppCoordinatorProtocol, AuthenticationFlowCoordinatorDeleg
                                                                    appSettings: appSettings))
 
         ServiceLocator.shared.register(wallet: WalletService())
+        ServiceLocator.shared.register(clarivaProfile: ClarivaProfileService())
+        ServiceLocator.shared.register(clarivaAuth: ClarivaAuthService())
     }
     
     /// Perform any required migrations for the app to function correctly.
@@ -738,6 +754,8 @@ class AppCoordinator: AppCoordinatorProtocol, AuthenticationFlowCoordinatorDeleg
         Task {
             await runPostSessionSetupTasks()
         }
+        
+        unlockKeyStorageIfPending(for: userSession)
     }
         
     private func logout(isSoft: Bool) {
@@ -768,6 +786,7 @@ class AppCoordinator: AppCoordinatorProtocol, AuthenticationFlowCoordinatorDeleg
             await userSession.clientProxy.logout()
             
             // Regardless of the result, clear user data
+            ClarivaRecoveryPassphraseStore().removePassphrase(for: userSession.clientProxy.userID)
             userSessionStore.logout(userSession: userSession)
             tearDownUserSession()
             
@@ -781,6 +800,25 @@ class AppCoordinator: AppCoordinatorProtocol, AuthenticationFlowCoordinatorDeleg
             stateMachine.processEvent(.completedSigningOut)
                        
             hideLoadingIndicator()
+        }
+    }
+    
+    /// Clariva: unlocks key storage with a passphrase still pending from sign-in (see
+    /// `ClarivaRecoveryPassphraseStore`). Started once the session (and therefore sync) is set up so
+    /// the recovery state can settle. Not awaited and never fatal.
+    private func unlockKeyStorageIfPending(for userSession: UserSessionProtocol) {
+        let userID = userSession.clientProxy.userID
+        let passphraseStore = ClarivaRecoveryPassphraseStore()
+        guard let passphrase = passphraseStore.passphrase(for: userID) else { return }
+        
+        let secureBackupController = userSession.clientProxy.secureBackupController
+        Task {
+            switch await ClarivaKeyStorageService.unlock(secureBackupController: secureBackupController, passphrase: passphrase) {
+            case .finished:
+                passphraseStore.removePassphrase(for: userID)
+            case .retryLater:
+                break
+            }
         }
     }
     
@@ -876,7 +914,13 @@ class AppCoordinator: AppCoordinatorProtocol, AuthenticationFlowCoordinatorDeleg
                 guard let self else { return }
                 switch callback {
                 case .didReceiveAuthError(let isSoftLogout):
-                    stateMachine.processEvent(.signOut(isSoft: isSoftLogout, disableAppLock: false))
+                    // Clariva: sessions are password-less and have no refresh token, so the upstream soft
+                    // logout screen (Matrix password / OIDC re-login) can never succeed. Always sign out fully
+                    // and return to the Clariva sign-in screen; key storage restores history on the next login.
+                    if isSoftLogout {
+                        MXLog.warning("Received a soft logout, signing out fully (Clariva accounts can't re-authenticate in place).")
+                    }
+                    stateMachine.processEvent(.signOut(isSoft: false, disableAppLock: false))
                 }
             }
     }
@@ -940,8 +984,16 @@ class AppCoordinator: AppCoordinatorProtocol, AuthenticationFlowCoordinatorDeleg
         }
     }
     
+    /// The `enabled` state Sentry was last started with; nil until started.
+    private static var startedSentryEnabledState: Bool?
+    
     private static func setupSentry(bugReportService: BugReportServiceProtocol, appSettings: AppSettings) {
-        guard let bugReportSentryURL = appSettings.bugReportSentryURL else { return }
+        // Clariva ships Secrets.swift's placeholder DSN (`sentry.localhost`): there is no Sentry project
+        // to report to, so don't start the SDK at all.
+        guard let bugReportSentryURL = appSettings.bugReportSentryURL,
+              bugReportSentryURL.host?.hasSuffix(".localhost") == false else {
+            return
+        }
         
         let options: Options = .init()
         
@@ -950,6 +1002,14 @@ class AppCoordinator: AppCoordinatorProtocol, AuthenticationFlowCoordinatorDeleg
         #else
         options.enabled = appSettings.analyticsConsentState == .optedIn
         #endif
+        
+        // Restarting the SDK races its own teardown (EXC_BAD_ACCESS in
+        // `_SentryDispatchQueueWrapperInternal dispatchAsyncOnMainQueueIfNotMainThread` right after the
+        // analytics consent changed), so only (re)start it when the enabled state actually changes.
+        guard startedSentryEnabledState != options.enabled else {
+            return
+        }
+        startedSentryEnabledState = options.enabled
 
         options.dsn = bugReportSentryURL.absoluteString
         
@@ -1003,6 +1063,7 @@ class AppCoordinator: AppCoordinatorProtocol, AuthenticationFlowCoordinatorDeleg
     }
     
     private func teardownSentry() {
+        Self.startedSentryEnabledState = nil
         SentrySDK.close()
         MXLog.info("SentrySDK stopped")
     }

@@ -17,20 +17,42 @@ class RoomTests: XCTestCase {
         let room = RoomSDKMock()
         room.hasActiveRoomCallReturnValue = false
         room.isDirectReturnValue = false
-        
-        var callIntent = await room.joinCallIntent
+
+        var callIntent = await room.joinCallIntent(startWithVideoMuted: false)
         XCTAssertEqual(callIntent, .startCall)
-        
+
         room.isDirectReturnValue = true
-        callIntent = await room.joinCallIntent
+        callIntent = await room.joinCallIntent(startWithVideoMuted: false)
         XCTAssertEqual(callIntent, .startCallDm)
-        
+
         room.hasActiveRoomCallReturnValue = true
-        callIntent = await room.joinCallIntent
+        callIntent = await room.joinCallIntent(startWithVideoMuted: false)
         XCTAssertEqual(callIntent, .joinExistingDm)
-        
+
         room.isDirectReturnValue = false
-        callIntent = await room.joinCallIntent
+        callIntent = await room.joinCallIntent(startWithVideoMuted: false)
+        XCTAssertEqual(callIntent, .joinExisting)
+    }
+
+    func testVoiceCallIntent() async throws {
+        let room = RoomSDKMock()
+        room.hasActiveRoomCallReturnValue = false
+        room.isDirectReturnValue = false
+
+        // There are no voice intents outside of DMs.
+        var callIntent = await room.joinCallIntent(startWithVideoMuted: true)
+        XCTAssertEqual(callIntent, .startCall)
+
+        room.isDirectReturnValue = true
+        callIntent = await room.joinCallIntent(startWithVideoMuted: true)
+        XCTAssertEqual(callIntent, .startCallDmVoice)
+
+        room.hasActiveRoomCallReturnValue = true
+        callIntent = await room.joinCallIntent(startWithVideoMuted: true)
+        XCTAssertEqual(callIntent, .joinExistingDmVoice)
+
+        room.isDirectReturnValue = false
+        callIntent = await room.joinCallIntent(startWithVideoMuted: true)
         XCTAssertEqual(callIntent, .joinExisting)
     }
 }

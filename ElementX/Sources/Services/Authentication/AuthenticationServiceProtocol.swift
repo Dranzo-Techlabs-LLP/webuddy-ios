@@ -57,6 +57,16 @@ protocol AuthenticationServiceProtocol: QRCodeLoginServiceProtocol {
     
     /// Resets the current configuration requiring `configure(for:flow:)` to be called again.
     func reset()
+    
+    // MARK: Clariva
+    
+    /// Builds a fresh client for `ClarivaConfig.homeserverAddress` (well-known + sliding sync discovery)
+    /// WITHOUT validating the server's login flows. Rotates the session directory, so every import
+    /// attempt needs its own call.
+    func prepareClarivaClient() async -> Result<Void, AuthenticationServiceError>
+    /// Restores a session minted by the Clariva API on the client built by `prepareClarivaClient()`
+    /// and persists it. The prepared client is consumed whatever the outcome.
+    func importClarivaSession(userID: String, deviceID: String, accessToken: String) async -> Result<UserSessionProtocol, AuthenticationServiceError>
 }
 
 // MARK: - OIDC

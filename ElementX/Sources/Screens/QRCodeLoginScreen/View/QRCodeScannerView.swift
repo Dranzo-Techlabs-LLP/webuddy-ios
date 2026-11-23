@@ -13,6 +13,9 @@ import UIKit
 struct QRCodeScannerView: UIViewControllerRepresentable {
     @Binding var result: Data?
     var isScanning: Bool
+    /// Use the decoded text of the code when there is one, instead of the raw binary segments.
+    /// Text payloads (e.g. user links) don't need the binary decoding used by QR login.
+    var prefersTextPayload = false
     
     func makeUIViewController(context: Context) -> QRScannerController {
         let controller = QRScannerController()
@@ -21,6 +24,8 @@ struct QRCodeScannerView: UIViewControllerRepresentable {
     }
  
     func updateUIViewController(_ uiViewController: QRScannerController, context: Context) {
+        context.coordinator.prefersTextPayload = prefersTextPayload
+        
         if isScanning {
             uiViewController.startScan()
         } else {
@@ -29,14 +34,16 @@ struct QRCodeScannerView: UIViewControllerRepresentable {
     }
     
     func makeCoordinator() -> Coordinator {
-        Coordinator($result)
+        Coordinator($result, prefersTextPayload: prefersTextPayload)
     }
     
     final class Coordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate {
         @Binding var scanResult: Data?
+        var prefersTextPayload: Bool
      
-        init(_ scanResult: Binding<Data?>) {
+        init(_ scanResult: Binding<Data?>, prefersTextPayload: Bool) {
             _scanResult = scanResult
+            self.prefersTextPayload = prefersTextPayload
         }
      
         func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
@@ -46,12 +53,30 @@ struct QRCodeScannerView: UIViewControllerRepresentable {
                 return
             }
             
+            if prefersTextPayload, let stringValue = metadataObject.stringValue {
+                scanResult = Data(stringValue.utf8)
+                MXLog.info("Scanned text data")
+                return
+            }
+            
             do {
-                let data = try metadataObject.qrBinaryValue
-                scanResult = data
-                MXLog.info("Scanned data")
+                if let data = try metadataObject.qrBinaryValue {
+                    scanResult = data
+                    MXLog.info("Scanned data")
+                    return
+                }
             } catch {
-                MXLog.error("Invalid QR code: \(error)")
+                MXLog.error("Invalid binary QR code: \(error)")
+            }
+
+            // Clariva: `qrBinaryValue` only understands byte and alphanumeric segments. Fall back to
+            // the decoded text for other codes (numeric / ECI segments) so that third-party user
+            // links can still be scanned. QR login only uses binary payloads, which take the path above.
+            if let stringValue = metadataObject.stringValue {
+                scanResult = Data(stringValue.utf8)
+                MXLog.info("Scanned text data")
+            } else {
+                MXLog.error("Invalid QR code: no payload")
             }
         }
     }

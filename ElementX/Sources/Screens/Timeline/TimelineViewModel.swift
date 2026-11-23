@@ -704,6 +704,7 @@ class TimelineViewModel: TimelineViewModelType, TimelineViewModelProtocol {
 
         actionsSubject.send(.composer(action: .clear))
         
+        var isBillableSend = true
         switch mode {
         case .reply(let eventID, _, _):
             await timelineController.sendMessage(message,
@@ -724,6 +725,8 @@ class TimelineViewModel: TimelineViewModelType, TimelineViewModelProtocol {
         case .default:
             switch slashCommand(message: message) {
             case .join:
+                // A slash command sends nothing, so it never starts a billable session.
+                isBillableSend = false
                 await handleJoinCommand(message: message)
             case .none:
                 await timelineController.sendMessage(message,
@@ -735,19 +738,25 @@ class TimelineViewModel: TimelineViewModelType, TimelineViewModelProtocol {
             fatalError("invalid composer mode.")
         }
 
-        initiateHoldIfNeeded()
+        if isBillableSend {
+            initiateHoldIfNeeded()
+        }
 
         scrollToBottom()
     }
 
-    /// Mirrors Android `MessageComposerPresenter.initiateHoldIfNeeded`. Fires a wallet
-    /// hold on every outgoing message in a DM; the server enforces the consultant filter
-    /// and the 24h (client, consultant) idempotency window.
+    /// Mirrors Android `MessageComposerPresenter` (c5af520c08, fc38a7a6a0): every outgoing text
+    /// message in a DM takes (or reuses) the 24 h (client, consultant) hold. The hold is awaited so
+    /// the refreshed balance reflects the debit. `WalletService` no-ops for consultants, and the
+    /// room's `ChatWalletGate` re-checks the hold and rate through `holdStateDidChange`.
     private func initiateHoldIfNeeded() {
-        guard roomProxy.isDirectOneToOneRoom else { return }
-        let clientId = roomProxy.ownUserID
-        guard let otherUserID = roomProxy.membersPublisher.value.first(where: { $0.userID != clientId })?.userID else { return }
-        Task { await ServiceLocator.shared.wallet.initiateHold(clientId: clientId, consultantId: otherUserID) }
+        let wallet: WalletService? = ServiceLocator.shared.wallet
+        guard let wallet, let partnerID = roomProxy.walletPartnerUserID else { return }
+        let ownUserID = roomProxy.ownUserID
+        Task {
+            await wallet.initiateHold(clientId: ownUserID, consultantId: partnerID)
+            await wallet.refreshBalance(userId: ownUserID)
+        }
     }
 
     private func trackComposerMode(_ mode: ComposerMode) {

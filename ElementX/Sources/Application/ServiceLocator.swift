@@ -36,4 +36,17 @@ class ServiceLocator {
     func register(wallet: WalletService) {
         self.wallet = wallet
     }
+
+    private(set) var clarivaAuth: ClarivaAuthServiceProtocol!
+
+    func register(clarivaAuth: ClarivaAuthServiceProtocol) {
+        self.clarivaAuth = clarivaAuth
+    }
+
+    /// Clariva designations and "Last seen and online" privacy. nil in previews and tests.
+    private(set) var clarivaProfile: ClarivaProfileService!
+
+    func register(clarivaProfile: ClarivaProfileService) {
+        self.clarivaProfile = clarivaProfile
+    }
 }

@@ -11,13 +11,7 @@ import SFSafeSymbols
 import SwiftUI
 
 struct SettingsScreen: View {
-    let context: SettingsScreenViewModel.Context
-    
-    private var shouldHideManageAccountSection: Bool {
-        context.viewState.accountProfileURL == nil &&
-            context.viewState.accountSessionsListURL == nil &&
-            !context.viewState.showBlockedUsers
-    }
+    @Bindable var context: SettingsScreenViewModel.Context
     
     var body: some View {
         Form {
@@ -25,9 +19,8 @@ struct SettingsScreen: View {
             
             manageMyAppSection
             
-            if !shouldHideManageAccountSection {
-                manageAccountSection
-            }
+            // Clariva: always shown, "My QR code" is never hidden.
+            manageAccountSection
             
             generalSection
             
@@ -41,6 +34,7 @@ struct SettingsScreen: View {
         .navigationTitle(L10n.commonSettings)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
+        .alert(item: $context.alertInfo)
     }
     
     private var userSection: some View {
@@ -108,6 +102,19 @@ struct SettingsScreen: View {
     
     private var manageAccountSection: some View {
         Section {
+            ListRow(label: .default(title: "My QR code",
+                                    icon: \.qrCode),
+                    kind: .navigationLink {
+                        context.send(viewAction: .myQRCode)
+                    })
+            
+            // Clariva (Android ee053dc156).
+            ListRow(label: .default(title: "Last seen and online",
+                                    icon: \.visibilityOn),
+                    kind: .navigationLink {
+                        context.send(viewAction: .lastSeenPrivacy)
+                    })
+            
             if context.viewState.showLinkNewDeviceButton {
                 ListRow(label: .default(title: L10n.commonLinkNewDevice,
                                         icon: \.devices),
@@ -152,6 +159,24 @@ struct SettingsScreen: View {
                         context.send(viewAction: .advancedSettings)
                     })
                     .accessibilityIdentifier(A11yIdentifiers.settingsScreen.advancedSettings)
+            
+            if context.viewState.showBillingAndPayments {
+                ListRow(label: .default(title: "Billing and Payments",
+                                        icon: \.chart),
+                        kind: .navigationLink {
+                            context.send(viewAction: .billingAndPayments)
+                        })
+            }
+            
+            // Clariva (Android ee053dc156): consultant-only, the title shown beside their name in chats.
+            if context.viewState.showDesignation {
+                ListRow(label: .default(title: "Designation",
+                                        description: context.viewState.designation ?? ClarivaDesignation.defaultConsultantDesignation,
+                                        icon: \.userProfile),
+                        kind: .button {
+                            context.send(viewAction: .editDesignation)
+                        })
+            }
             
             ListRow(label: .default(title: L10n.screenAdvancedSettingsLabs,
                                     icon: \.labs),

@@ -16,7 +16,7 @@ struct SecureBackupLogoutConfirmationScreen: View {
     var body: some View {
         FullscreenDialog {
             VStack(spacing: 16) {
-                BigIcon(icon: \.keyOffSolid)
+                BigIcon(icon: \.signOut)
                 content
             }
             .padding()
@@ -59,15 +59,6 @@ struct SecureBackupLogoutConfirmationScreen: View {
     @ViewBuilder
     private var footer: some View {
         VStack(spacing: 16.0) {
-            if case .saveRecoveryKey = context.viewState.mode {
-                Button {
-                    context.send(viewAction: .settings)
-                } label: {
-                    Text(L10n.commonSettings)
-                }
-                .buttonStyle(.compound(.primary))
-            }
-            
             Button(role: .destructive) {
                 context.send(viewAction: .logout)
             } label: {
@@ -89,7 +80,8 @@ struct SecureBackupLogoutConfirmationScreen: View {
     private var title: String {
         switch context.viewState.mode {
         case .saveRecoveryKey:
-            return L10n.screenSignoutSaveRecoveryKeyTitle
+            // Clariva (Android 528a712bb6): there is no recovery key to save.
+            return "Sign out?"
         case .waitingToStart, .backupOngoing:
             return L10n.screenSignoutKeyBackupOngoingTitle
         case .offline:
@@ -100,7 +92,7 @@ struct SecureBackupLogoutConfirmationScreen: View {
     private var subtitle: String {
         switch context.viewState.mode {
         case .saveRecoveryKey:
-            return L10n.screenSignoutSaveRecoveryKeySubtitle
+            return "Your chats are safely backed up. Sign in again on any device and they'll be waiting for you."
         case .waitingToStart, .backupOngoing:
             return L10n.screenSignoutKeyBackupOngoingSubtitle
         case .offline:

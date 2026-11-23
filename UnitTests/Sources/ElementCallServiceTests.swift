@@ -5,6 +5,7 @@
 // Please see LICENSE files in the repository root for full details.
 //
 
+import CallKit
 import Clocks
 import PushKit
 import XCTest
@@ -42,6 +43,40 @@ class ElementCallServiceTests: XCTestCase {
         
         await fulfillment(of: [expectation], timeout: 1)
         XCTAssertTrue(callProvider.reportNewIncomingCallWithUpdateCompletionCalled)
+        // Without a known call type the call rings as a voice call.
+        XCTAssertEqual(callProvider.reportNewIncomingCallWithUpdateCompletionReceivedArguments?.update.hasVideo, false)
+    }
+    
+    func testIncomingVideoCall() async {
+        setupService()
+        
+        let expectation = XCTestExpectation(description: "Call accepted")
+        
+        let pkPushPayloadMock = PKPushPayloadMock().updatingExpiration(currentDate, lifetime: 30)
+        pkPushPayloadMock.dict[ElementCallServiceNotificationKey.isVideo.rawValue] = true
+        
+        service.pushRegistry(pushRegistry, didReceiveIncomingPushWith: pkPushPayloadMock, for: .voIP) {
+            expectation.fulfill()
+        }
+        
+        await fulfillment(of: [expectation], timeout: 1)
+        XCTAssertEqual(callProvider.reportNewIncomingCallWithUpdateCompletionReceivedArguments?.update.hasVideo, true)
+    }
+    
+    func testIncomingCallIsUpgradedToVideo() async {
+        setupService(roomCallType: "video")
+        
+        let expectation = XCTestExpectation(description: "Call updated")
+        callProvider.reportCallWithUpdatedClosure = { _, update in
+            XCTAssertTrue(update.hasVideo)
+            expectation.fulfill()
+        }
+        
+        let pkPushPayloadMock = PKPushPayloadMock().updatingExpiration(currentDate, lifetime: 30)
+        service.pushRegistry(pushRegistry, didReceiveIncomingPushWith: pkPushPayloadMock, for: .voIP) { }
+        
+        await fulfillment(of: [expectation], timeout: 1)
+        XCTAssertEqual(callProvider.reportNewIncomingCallWithUpdateCompletionReceivedArguments?.update.hasVideo, false)
     }
     
     func disabled_testCallIsTimingOut() async {
@@ -118,7 +153,7 @@ class ElementCallServiceTests: XCTestCase {
     
     // MARK: - Helpers
     
-    private func setupService() {
+    private func setupService(roomCallType: String? = nil) {
         pushRegistry = PKPushRegistry(queue: nil)
         callProvider = CXProviderMock(.init())
         currentDate = Date()
@@ -126,7 +161,9 @@ class ElementCallServiceTests: XCTestCase {
         let dateProvider: () -> Date = {
             self.currentDate
         }
-        service = ElementCallService(callProvider: callProvider, timeProvider: TimeProvider(clock: testClock, now: dateProvider))
+        service = ElementCallService(callProvider: callProvider,
+                                     timeProvider: TimeProvider(clock: testClock, now: dateProvider),
+                                     roomCallTypeProvider: { _ in roomCallType })
     }
 }
 

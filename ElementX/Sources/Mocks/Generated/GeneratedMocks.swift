@@ -2192,6 +2192,820 @@ class CXProviderMock: CXProviderProtocol, @unchecked Sendable {
         }
         reportCallWithEndedAtReasonClosure?(uuid, endedAt, reason)
     }
+    //MARK: - reportCall
+
+    var reportCallWithUpdatedUnderlyingCallsCount = 0
+    var reportCallWithUpdatedCallsCount: Int {
+        get {
+            if Thread.isMainThread {
+                return reportCallWithUpdatedUnderlyingCallsCount
+            } else {
+                var returnValue: Int? = nil
+                DispatchQueue.main.sync {
+                    returnValue = reportCallWithUpdatedUnderlyingCallsCount
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                reportCallWithUpdatedUnderlyingCallsCount = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    reportCallWithUpdatedUnderlyingCallsCount = newValue
+                }
+            }
+        }
+    }
+    var reportCallWithUpdatedCalled: Bool {
+        return reportCallWithUpdatedCallsCount > 0
+    }
+    var reportCallWithUpdatedReceivedArguments: (uuid: UUID, update: CXCallUpdate)?
+    var reportCallWithUpdatedReceivedInvocations: [(uuid: UUID, update: CXCallUpdate)] = []
+    var reportCallWithUpdatedClosure: ((UUID, CXCallUpdate) -> Void)?
+
+    func reportCall(with uuid: UUID, updated update: CXCallUpdate) {
+        reportCallWithUpdatedCallsCount += 1
+        reportCallWithUpdatedReceivedArguments = (uuid: uuid, update: update)
+        DispatchQueue.main.async {
+            self.reportCallWithUpdatedReceivedInvocations.append((uuid: uuid, update: update))
+        }
+        reportCallWithUpdatedClosure?(uuid, update)
+    }
+}
+class ClarivaAuthServiceMock: ClarivaAuthServiceProtocol, @unchecked Sendable {
+
+    //MARK: - signUp
+
+    var signUpEmailPasswordNameUsernameIsConsultantUnderlyingCallsCount = 0
+    var signUpEmailPasswordNameUsernameIsConsultantCallsCount: Int {
+        get {
+            if Thread.isMainThread {
+                return signUpEmailPasswordNameUsernameIsConsultantUnderlyingCallsCount
+            } else {
+                var returnValue: Int? = nil
+                DispatchQueue.main.sync {
+                    returnValue = signUpEmailPasswordNameUsernameIsConsultantUnderlyingCallsCount
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                signUpEmailPasswordNameUsernameIsConsultantUnderlyingCallsCount = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    signUpEmailPasswordNameUsernameIsConsultantUnderlyingCallsCount = newValue
+                }
+            }
+        }
+    }
+    var signUpEmailPasswordNameUsernameIsConsultantCalled: Bool {
+        return signUpEmailPasswordNameUsernameIsConsultantCallsCount > 0
+    }
+    var signUpEmailPasswordNameUsernameIsConsultantReceivedArguments: (email: String, password: String, name: String, username: String, isConsultant: Bool)?
+    var signUpEmailPasswordNameUsernameIsConsultantReceivedInvocations: [(email: String, password: String, name: String, username: String, isConsultant: Bool)] = []
+
+    var signUpEmailPasswordNameUsernameIsConsultantUnderlyingReturnValue: Result<ClarivaCredentials, ClarivaAuthError>!
+    var signUpEmailPasswordNameUsernameIsConsultantReturnValue: Result<ClarivaCredentials, ClarivaAuthError>! {
+        get {
+            if Thread.isMainThread {
+                return signUpEmailPasswordNameUsernameIsConsultantUnderlyingReturnValue
+            } else {
+                var returnValue: Result<ClarivaCredentials, ClarivaAuthError>? = nil
+                DispatchQueue.main.sync {
+                    returnValue = signUpEmailPasswordNameUsernameIsConsultantUnderlyingReturnValue
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                signUpEmailPasswordNameUsernameIsConsultantUnderlyingReturnValue = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    signUpEmailPasswordNameUsernameIsConsultantUnderlyingReturnValue = newValue
+                }
+            }
+        }
+    }
+    var signUpEmailPasswordNameUsernameIsConsultantClosure: ((String, String, String, String, Bool) async -> Result<ClarivaCredentials, ClarivaAuthError>)?
+
+    func signUp(email: String, password: String, name: String, username: String, isConsultant: Bool) async -> Result<ClarivaCredentials, ClarivaAuthError> {
+        signUpEmailPasswordNameUsernameIsConsultantCallsCount += 1
+        signUpEmailPasswordNameUsernameIsConsultantReceivedArguments = (email: email, password: password, name: name, username: username, isConsultant: isConsultant)
+        DispatchQueue.main.async {
+            self.signUpEmailPasswordNameUsernameIsConsultantReceivedInvocations.append((email: email, password: password, name: name, username: username, isConsultant: isConsultant))
+        }
+        if let signUpEmailPasswordNameUsernameIsConsultantClosure = signUpEmailPasswordNameUsernameIsConsultantClosure {
+            return await signUpEmailPasswordNameUsernameIsConsultantClosure(email, password, name, username, isConsultant)
+        } else {
+            return signUpEmailPasswordNameUsernameIsConsultantReturnValue
+        }
+    }
+    //MARK: - signIn
+
+    var signInIdentifierPasswordUnderlyingCallsCount = 0
+    var signInIdentifierPasswordCallsCount: Int {
+        get {
+            if Thread.isMainThread {
+                return signInIdentifierPasswordUnderlyingCallsCount
+            } else {
+                var returnValue: Int? = nil
+                DispatchQueue.main.sync {
+                    returnValue = signInIdentifierPasswordUnderlyingCallsCount
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                signInIdentifierPasswordUnderlyingCallsCount = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    signInIdentifierPasswordUnderlyingCallsCount = newValue
+                }
+            }
+        }
+    }
+    var signInIdentifierPasswordCalled: Bool {
+        return signInIdentifierPasswordCallsCount > 0
+    }
+    var signInIdentifierPasswordReceivedArguments: (identifier: String, password: String)?
+    var signInIdentifierPasswordReceivedInvocations: [(identifier: String, password: String)] = []
+
+    var signInIdentifierPasswordUnderlyingReturnValue: Result<ClarivaCredentials, ClarivaAuthError>!
+    var signInIdentifierPasswordReturnValue: Result<ClarivaCredentials, ClarivaAuthError>! {
+        get {
+            if Thread.isMainThread {
+                return signInIdentifierPasswordUnderlyingReturnValue
+            } else {
+                var returnValue: Result<ClarivaCredentials, ClarivaAuthError>? = nil
+                DispatchQueue.main.sync {
+                    returnValue = signInIdentifierPasswordUnderlyingReturnValue
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                signInIdentifierPasswordUnderlyingReturnValue = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    signInIdentifierPasswordUnderlyingReturnValue = newValue
+                }
+            }
+        }
+    }
+    var signInIdentifierPasswordClosure: ((String, String) async -> Result<ClarivaCredentials, ClarivaAuthError>)?
+
+    func signIn(identifier: String, password: String) async -> Result<ClarivaCredentials, ClarivaAuthError> {
+        signInIdentifierPasswordCallsCount += 1
+        signInIdentifierPasswordReceivedArguments = (identifier: identifier, password: password)
+        DispatchQueue.main.async {
+            self.signInIdentifierPasswordReceivedInvocations.append((identifier: identifier, password: password))
+        }
+        if let signInIdentifierPasswordClosure = signInIdentifierPasswordClosure {
+            return await signInIdentifierPasswordClosure(identifier, password)
+        } else {
+            return signInIdentifierPasswordReturnValue
+        }
+    }
+    //MARK: - signInWithGoogle
+
+    var signInWithGoogleIdTokenIsConsultantIsSignUpUnderlyingCallsCount = 0
+    var signInWithGoogleIdTokenIsConsultantIsSignUpCallsCount: Int {
+        get {
+            if Thread.isMainThread {
+                return signInWithGoogleIdTokenIsConsultantIsSignUpUnderlyingCallsCount
+            } else {
+                var returnValue: Int? = nil
+                DispatchQueue.main.sync {
+                    returnValue = signInWithGoogleIdTokenIsConsultantIsSignUpUnderlyingCallsCount
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                signInWithGoogleIdTokenIsConsultantIsSignUpUnderlyingCallsCount = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    signInWithGoogleIdTokenIsConsultantIsSignUpUnderlyingCallsCount = newValue
+                }
+            }
+        }
+    }
+    var signInWithGoogleIdTokenIsConsultantIsSignUpCalled: Bool {
+        return signInWithGoogleIdTokenIsConsultantIsSignUpCallsCount > 0
+    }
+    var signInWithGoogleIdTokenIsConsultantIsSignUpReceivedArguments: (idToken: String, isConsultant: Bool?, isSignUp: Bool)?
+    var signInWithGoogleIdTokenIsConsultantIsSignUpReceivedInvocations: [(idToken: String, isConsultant: Bool?, isSignUp: Bool)] = []
+
+    var signInWithGoogleIdTokenIsConsultantIsSignUpUnderlyingReturnValue: Result<ClarivaGoogleOutcome, ClarivaAuthError>!
+    var signInWithGoogleIdTokenIsConsultantIsSignUpReturnValue: Result<ClarivaGoogleOutcome, ClarivaAuthError>! {
+        get {
+            if Thread.isMainThread {
+                return signInWithGoogleIdTokenIsConsultantIsSignUpUnderlyingReturnValue
+            } else {
+                var returnValue: Result<ClarivaGoogleOutcome, ClarivaAuthError>? = nil
+                DispatchQueue.main.sync {
+                    returnValue = signInWithGoogleIdTokenIsConsultantIsSignUpUnderlyingReturnValue
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                signInWithGoogleIdTokenIsConsultantIsSignUpUnderlyingReturnValue = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    signInWithGoogleIdTokenIsConsultantIsSignUpUnderlyingReturnValue = newValue
+                }
+            }
+        }
+    }
+    var signInWithGoogleIdTokenIsConsultantIsSignUpClosure: ((String, Bool?, Bool) async -> Result<ClarivaGoogleOutcome, ClarivaAuthError>)?
+
+    func signInWithGoogle(idToken: String, isConsultant: Bool?, isSignUp: Bool) async -> Result<ClarivaGoogleOutcome, ClarivaAuthError> {
+        signInWithGoogleIdTokenIsConsultantIsSignUpCallsCount += 1
+        signInWithGoogleIdTokenIsConsultantIsSignUpReceivedArguments = (idToken: idToken, isConsultant: isConsultant, isSignUp: isSignUp)
+        DispatchQueue.main.async {
+            self.signInWithGoogleIdTokenIsConsultantIsSignUpReceivedInvocations.append((idToken: idToken, isConsultant: isConsultant, isSignUp: isSignUp))
+        }
+        if let signInWithGoogleIdTokenIsConsultantIsSignUpClosure = signInWithGoogleIdTokenIsConsultantIsSignUpClosure {
+            return await signInWithGoogleIdTokenIsConsultantIsSignUpClosure(idToken, isConsultant, isSignUp)
+        } else {
+            return signInWithGoogleIdTokenIsConsultantIsSignUpReturnValue
+        }
+    }
+    //MARK: - signInWithApple
+
+    var signInWithAppleIdentityTokenNameIsConsultantIsSignUpUnderlyingCallsCount = 0
+    var signInWithAppleIdentityTokenNameIsConsultantIsSignUpCallsCount: Int {
+        get {
+            if Thread.isMainThread {
+                return signInWithAppleIdentityTokenNameIsConsultantIsSignUpUnderlyingCallsCount
+            } else {
+                var returnValue: Int? = nil
+                DispatchQueue.main.sync {
+                    returnValue = signInWithAppleIdentityTokenNameIsConsultantIsSignUpUnderlyingCallsCount
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                signInWithAppleIdentityTokenNameIsConsultantIsSignUpUnderlyingCallsCount = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    signInWithAppleIdentityTokenNameIsConsultantIsSignUpUnderlyingCallsCount = newValue
+                }
+            }
+        }
+    }
+    var signInWithAppleIdentityTokenNameIsConsultantIsSignUpCalled: Bool {
+        return signInWithAppleIdentityTokenNameIsConsultantIsSignUpCallsCount > 0
+    }
+    var signInWithAppleIdentityTokenNameIsConsultantIsSignUpReceivedArguments: (identityToken: String, name: String?, isConsultant: Bool?, isSignUp: Bool)?
+    var signInWithAppleIdentityTokenNameIsConsultantIsSignUpReceivedInvocations: [(identityToken: String, name: String?, isConsultant: Bool?, isSignUp: Bool)] = []
+
+    var signInWithAppleIdentityTokenNameIsConsultantIsSignUpUnderlyingReturnValue: Result<ClarivaGoogleOutcome, ClarivaAuthError>!
+    var signInWithAppleIdentityTokenNameIsConsultantIsSignUpReturnValue: Result<ClarivaGoogleOutcome, ClarivaAuthError>! {
+        get {
+            if Thread.isMainThread {
+                return signInWithAppleIdentityTokenNameIsConsultantIsSignUpUnderlyingReturnValue
+            } else {
+                var returnValue: Result<ClarivaGoogleOutcome, ClarivaAuthError>? = nil
+                DispatchQueue.main.sync {
+                    returnValue = signInWithAppleIdentityTokenNameIsConsultantIsSignUpUnderlyingReturnValue
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                signInWithAppleIdentityTokenNameIsConsultantIsSignUpUnderlyingReturnValue = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    signInWithAppleIdentityTokenNameIsConsultantIsSignUpUnderlyingReturnValue = newValue
+                }
+            }
+        }
+    }
+    var signInWithAppleIdentityTokenNameIsConsultantIsSignUpClosure: ((String, String?, Bool?, Bool) async -> Result<ClarivaGoogleOutcome, ClarivaAuthError>)?
+
+    func signInWithApple(identityToken: String, name: String?, isConsultant: Bool?, isSignUp: Bool) async -> Result<ClarivaGoogleOutcome, ClarivaAuthError> {
+        signInWithAppleIdentityTokenNameIsConsultantIsSignUpCallsCount += 1
+        signInWithAppleIdentityTokenNameIsConsultantIsSignUpReceivedArguments = (identityToken: identityToken, name: name, isConsultant: isConsultant, isSignUp: isSignUp)
+        DispatchQueue.main.async {
+            self.signInWithAppleIdentityTokenNameIsConsultantIsSignUpReceivedInvocations.append((identityToken: identityToken, name: name, isConsultant: isConsultant, isSignUp: isSignUp))
+        }
+        if let signInWithAppleIdentityTokenNameIsConsultantIsSignUpClosure = signInWithAppleIdentityTokenNameIsConsultantIsSignUpClosure {
+            return await signInWithAppleIdentityTokenNameIsConsultantIsSignUpClosure(identityToken, name, isConsultant, isSignUp)
+        } else {
+            return signInWithAppleIdentityTokenNameIsConsultantIsSignUpReturnValue
+        }
+    }
+    //MARK: - isUsernameAvailable
+
+    var isUsernameAvailableUnderlyingCallsCount = 0
+    var isUsernameAvailableCallsCount: Int {
+        get {
+            if Thread.isMainThread {
+                return isUsernameAvailableUnderlyingCallsCount
+            } else {
+                var returnValue: Int? = nil
+                DispatchQueue.main.sync {
+                    returnValue = isUsernameAvailableUnderlyingCallsCount
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                isUsernameAvailableUnderlyingCallsCount = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    isUsernameAvailableUnderlyingCallsCount = newValue
+                }
+            }
+        }
+    }
+    var isUsernameAvailableCalled: Bool {
+        return isUsernameAvailableCallsCount > 0
+    }
+    var isUsernameAvailableReceivedUsername: String?
+    var isUsernameAvailableReceivedInvocations: [String] = []
+
+    var isUsernameAvailableUnderlyingReturnValue: Bool?
+    var isUsernameAvailableReturnValue: Bool? {
+        get {
+            if Thread.isMainThread {
+                return isUsernameAvailableUnderlyingReturnValue
+            } else {
+                var returnValue: Bool?? = nil
+                DispatchQueue.main.sync {
+                    returnValue = isUsernameAvailableUnderlyingReturnValue
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                isUsernameAvailableUnderlyingReturnValue = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    isUsernameAvailableUnderlyingReturnValue = newValue
+                }
+            }
+        }
+    }
+    var isUsernameAvailableClosure: ((String) async -> Bool?)?
+
+    func isUsernameAvailable(_ username: String) async -> Bool? {
+        isUsernameAvailableCallsCount += 1
+        isUsernameAvailableReceivedUsername = username
+        DispatchQueue.main.async {
+            self.isUsernameAvailableReceivedInvocations.append(username)
+        }
+        if let isUsernameAvailableClosure = isUsernameAvailableClosure {
+            return await isUsernameAvailableClosure(username)
+        } else {
+            return isUsernameAvailableReturnValue
+        }
+    }
+    //MARK: - isEmailAvailable
+
+    var isEmailAvailableUnderlyingCallsCount = 0
+    var isEmailAvailableCallsCount: Int {
+        get {
+            if Thread.isMainThread {
+                return isEmailAvailableUnderlyingCallsCount
+            } else {
+                var returnValue: Int? = nil
+                DispatchQueue.main.sync {
+                    returnValue = isEmailAvailableUnderlyingCallsCount
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                isEmailAvailableUnderlyingCallsCount = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    isEmailAvailableUnderlyingCallsCount = newValue
+                }
+            }
+        }
+    }
+    var isEmailAvailableCalled: Bool {
+        return isEmailAvailableCallsCount > 0
+    }
+    var isEmailAvailableReceivedEmail: String?
+    var isEmailAvailableReceivedInvocations: [String] = []
+
+    var isEmailAvailableUnderlyingReturnValue: Bool?
+    var isEmailAvailableReturnValue: Bool? {
+        get {
+            if Thread.isMainThread {
+                return isEmailAvailableUnderlyingReturnValue
+            } else {
+                var returnValue: Bool?? = nil
+                DispatchQueue.main.sync {
+                    returnValue = isEmailAvailableUnderlyingReturnValue
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                isEmailAvailableUnderlyingReturnValue = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    isEmailAvailableUnderlyingReturnValue = newValue
+                }
+            }
+        }
+    }
+    var isEmailAvailableClosure: ((String) async -> Bool?)?
+
+    func isEmailAvailable(_ email: String) async -> Bool? {
+        isEmailAvailableCallsCount += 1
+        isEmailAvailableReceivedEmail = email
+        DispatchQueue.main.async {
+            self.isEmailAvailableReceivedInvocations.append(email)
+        }
+        if let isEmailAvailableClosure = isEmailAvailableClosure {
+            return await isEmailAvailableClosure(email)
+        } else {
+            return isEmailAvailableReturnValue
+        }
+    }
+    //MARK: - requestPasswordReset
+
+    var requestPasswordResetEmailUnderlyingCallsCount = 0
+    var requestPasswordResetEmailCallsCount: Int {
+        get {
+            if Thread.isMainThread {
+                return requestPasswordResetEmailUnderlyingCallsCount
+            } else {
+                var returnValue: Int? = nil
+                DispatchQueue.main.sync {
+                    returnValue = requestPasswordResetEmailUnderlyingCallsCount
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                requestPasswordResetEmailUnderlyingCallsCount = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    requestPasswordResetEmailUnderlyingCallsCount = newValue
+                }
+            }
+        }
+    }
+    var requestPasswordResetEmailCalled: Bool {
+        return requestPasswordResetEmailCallsCount > 0
+    }
+    var requestPasswordResetEmailReceivedEmail: String?
+    var requestPasswordResetEmailReceivedInvocations: [String] = []
+
+    var requestPasswordResetEmailUnderlyingReturnValue: Result<Void, ClarivaAuthError>!
+    var requestPasswordResetEmailReturnValue: Result<Void, ClarivaAuthError>! {
+        get {
+            if Thread.isMainThread {
+                return requestPasswordResetEmailUnderlyingReturnValue
+            } else {
+                var returnValue: Result<Void, ClarivaAuthError>? = nil
+                DispatchQueue.main.sync {
+                    returnValue = requestPasswordResetEmailUnderlyingReturnValue
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                requestPasswordResetEmailUnderlyingReturnValue = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    requestPasswordResetEmailUnderlyingReturnValue = newValue
+                }
+            }
+        }
+    }
+    var requestPasswordResetEmailClosure: ((String) async -> Result<Void, ClarivaAuthError>)?
+
+    func requestPasswordReset(email: String) async -> Result<Void, ClarivaAuthError> {
+        requestPasswordResetEmailCallsCount += 1
+        requestPasswordResetEmailReceivedEmail = email
+        DispatchQueue.main.async {
+            self.requestPasswordResetEmailReceivedInvocations.append(email)
+        }
+        if let requestPasswordResetEmailClosure = requestPasswordResetEmailClosure {
+            return await requestPasswordResetEmailClosure(email)
+        } else {
+            return requestPasswordResetEmailReturnValue
+        }
+    }
+    //MARK: - resetPassword
+
+    var resetPasswordEmailCodeNewPasswordUnderlyingCallsCount = 0
+    var resetPasswordEmailCodeNewPasswordCallsCount: Int {
+        get {
+            if Thread.isMainThread {
+                return resetPasswordEmailCodeNewPasswordUnderlyingCallsCount
+            } else {
+                var returnValue: Int? = nil
+                DispatchQueue.main.sync {
+                    returnValue = resetPasswordEmailCodeNewPasswordUnderlyingCallsCount
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                resetPasswordEmailCodeNewPasswordUnderlyingCallsCount = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    resetPasswordEmailCodeNewPasswordUnderlyingCallsCount = newValue
+                }
+            }
+        }
+    }
+    var resetPasswordEmailCodeNewPasswordCalled: Bool {
+        return resetPasswordEmailCodeNewPasswordCallsCount > 0
+    }
+    var resetPasswordEmailCodeNewPasswordReceivedArguments: (email: String, code: String, newPassword: String)?
+    var resetPasswordEmailCodeNewPasswordReceivedInvocations: [(email: String, code: String, newPassword: String)] = []
+
+    var resetPasswordEmailCodeNewPasswordUnderlyingReturnValue: Result<Void, ClarivaAuthError>!
+    var resetPasswordEmailCodeNewPasswordReturnValue: Result<Void, ClarivaAuthError>! {
+        get {
+            if Thread.isMainThread {
+                return resetPasswordEmailCodeNewPasswordUnderlyingReturnValue
+            } else {
+                var returnValue: Result<Void, ClarivaAuthError>? = nil
+                DispatchQueue.main.sync {
+                    returnValue = resetPasswordEmailCodeNewPasswordUnderlyingReturnValue
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                resetPasswordEmailCodeNewPasswordUnderlyingReturnValue = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    resetPasswordEmailCodeNewPasswordUnderlyingReturnValue = newValue
+                }
+            }
+        }
+    }
+    var resetPasswordEmailCodeNewPasswordClosure: ((String, String, String) async -> Result<Void, ClarivaAuthError>)?
+
+    func resetPassword(email: String, code: String, newPassword: String) async -> Result<Void, ClarivaAuthError> {
+        resetPasswordEmailCodeNewPasswordCallsCount += 1
+        resetPasswordEmailCodeNewPasswordReceivedArguments = (email: email, code: code, newPassword: newPassword)
+        DispatchQueue.main.async {
+            self.resetPasswordEmailCodeNewPasswordReceivedInvocations.append((email: email, code: code, newPassword: newPassword))
+        }
+        if let resetPasswordEmailCodeNewPasswordClosure = resetPasswordEmailCodeNewPasswordClosure {
+            return await resetPasswordEmailCodeNewPasswordClosure(email, code, newPassword)
+        } else {
+            return resetPasswordEmailCodeNewPasswordReturnValue
+        }
+    }
+    //MARK: - saveMyBankDetails
+
+    var saveMyBankDetailsUnderlyingCallsCount = 0
+    var saveMyBankDetailsCallsCount: Int {
+        get {
+            if Thread.isMainThread {
+                return saveMyBankDetailsUnderlyingCallsCount
+            } else {
+                var returnValue: Int? = nil
+                DispatchQueue.main.sync {
+                    returnValue = saveMyBankDetailsUnderlyingCallsCount
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                saveMyBankDetailsUnderlyingCallsCount = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    saveMyBankDetailsUnderlyingCallsCount = newValue
+                }
+            }
+        }
+    }
+    var saveMyBankDetailsCalled: Bool {
+        return saveMyBankDetailsCallsCount > 0
+    }
+    var saveMyBankDetailsReceivedRequest: ClarivaBankDetailsRequest?
+    var saveMyBankDetailsReceivedInvocations: [ClarivaBankDetailsRequest] = []
+
+    var saveMyBankDetailsUnderlyingReturnValue: Result<Void, ClarivaAuthError>!
+    var saveMyBankDetailsReturnValue: Result<Void, ClarivaAuthError>! {
+        get {
+            if Thread.isMainThread {
+                return saveMyBankDetailsUnderlyingReturnValue
+            } else {
+                var returnValue: Result<Void, ClarivaAuthError>? = nil
+                DispatchQueue.main.sync {
+                    returnValue = saveMyBankDetailsUnderlyingReturnValue
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                saveMyBankDetailsUnderlyingReturnValue = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    saveMyBankDetailsUnderlyingReturnValue = newValue
+                }
+            }
+        }
+    }
+    var saveMyBankDetailsClosure: ((ClarivaBankDetailsRequest) async -> Result<Void, ClarivaAuthError>)?
+
+    func saveMyBankDetails(_ request: ClarivaBankDetailsRequest) async -> Result<Void, ClarivaAuthError> {
+        saveMyBankDetailsCallsCount += 1
+        saveMyBankDetailsReceivedRequest = request
+        DispatchQueue.main.async {
+            self.saveMyBankDetailsReceivedInvocations.append(request)
+        }
+        if let saveMyBankDetailsClosure = saveMyBankDetailsClosure {
+            return await saveMyBankDetailsClosure(request)
+        } else {
+            return saveMyBankDetailsReturnValue
+        }
+    }
+    //MARK: - isGoogleAccount
+
+    var isGoogleAccountMatrixUserIDUnderlyingCallsCount = 0
+    var isGoogleAccountMatrixUserIDCallsCount: Int {
+        get {
+            if Thread.isMainThread {
+                return isGoogleAccountMatrixUserIDUnderlyingCallsCount
+            } else {
+                var returnValue: Int? = nil
+                DispatchQueue.main.sync {
+                    returnValue = isGoogleAccountMatrixUserIDUnderlyingCallsCount
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                isGoogleAccountMatrixUserIDUnderlyingCallsCount = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    isGoogleAccountMatrixUserIDUnderlyingCallsCount = newValue
+                }
+            }
+        }
+    }
+    var isGoogleAccountMatrixUserIDCalled: Bool {
+        return isGoogleAccountMatrixUserIDCallsCount > 0
+    }
+    var isGoogleAccountMatrixUserIDReceivedMatrixUserID: String?
+    var isGoogleAccountMatrixUserIDReceivedInvocations: [String] = []
+
+    var isGoogleAccountMatrixUserIDUnderlyingReturnValue: Bool?
+    var isGoogleAccountMatrixUserIDReturnValue: Bool? {
+        get {
+            if Thread.isMainThread {
+                return isGoogleAccountMatrixUserIDUnderlyingReturnValue
+            } else {
+                var returnValue: Bool?? = nil
+                DispatchQueue.main.sync {
+                    returnValue = isGoogleAccountMatrixUserIDUnderlyingReturnValue
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                isGoogleAccountMatrixUserIDUnderlyingReturnValue = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    isGoogleAccountMatrixUserIDUnderlyingReturnValue = newValue
+                }
+            }
+        }
+    }
+    var isGoogleAccountMatrixUserIDClosure: ((String) async -> Bool?)?
+
+    func isGoogleAccount(matrixUserID: String) async -> Bool? {
+        isGoogleAccountMatrixUserIDCallsCount += 1
+        isGoogleAccountMatrixUserIDReceivedMatrixUserID = matrixUserID
+        DispatchQueue.main.async {
+            self.isGoogleAccountMatrixUserIDReceivedInvocations.append(matrixUserID)
+        }
+        if let isGoogleAccountMatrixUserIDClosure = isGoogleAccountMatrixUserIDClosure {
+            return await isGoogleAccountMatrixUserIDClosure(matrixUserID)
+        } else {
+            return isGoogleAccountMatrixUserIDReturnValue
+        }
+    }
+    //MARK: - deactivate
+
+    var deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataUnderlyingCallsCount = 0
+    var deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataCallsCount: Int {
+        get {
+            if Thread.isMainThread {
+                return deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataUnderlyingCallsCount
+            } else {
+                var returnValue: Int? = nil
+                DispatchQueue.main.sync {
+                    returnValue = deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataUnderlyingCallsCount
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataUnderlyingCallsCount = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataUnderlyingCallsCount = newValue
+                }
+            }
+        }
+    }
+    var deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataCalled: Bool {
+        return deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataCallsCount > 0
+    }
+    var deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataReceivedArguments: (matrixUserID: String, password: String?, googleIDToken: String?, appleIDToken: String?, eraseData: Bool)?
+    var deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataReceivedInvocations: [(matrixUserID: String, password: String?, googleIDToken: String?, appleIDToken: String?, eraseData: Bool)] = []
+
+    var deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataUnderlyingReturnValue: Result<Void, ClarivaAuthError>!
+    var deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataReturnValue: Result<Void, ClarivaAuthError>! {
+        get {
+            if Thread.isMainThread {
+                return deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataUnderlyingReturnValue
+            } else {
+                var returnValue: Result<Void, ClarivaAuthError>? = nil
+                DispatchQueue.main.sync {
+                    returnValue = deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataUnderlyingReturnValue
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataUnderlyingReturnValue = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataUnderlyingReturnValue = newValue
+                }
+            }
+        }
+    }
+    var deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataClosure: ((String, String?, String?, String?, Bool) async -> Result<Void, ClarivaAuthError>)?
+
+    func deactivate(matrixUserID: String, password: String?, googleIDToken: String?, appleIDToken: String?, eraseData: Bool) async -> Result<Void, ClarivaAuthError> {
+        deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataCallsCount += 1
+        deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataReceivedArguments = (matrixUserID: matrixUserID, password: password, googleIDToken: googleIDToken, appleIDToken: appleIDToken, eraseData: eraseData)
+        DispatchQueue.main.async {
+            self.deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataReceivedInvocations.append((matrixUserID: matrixUserID, password: password, googleIDToken: googleIDToken, appleIDToken: appleIDToken, eraseData: eraseData))
+        }
+        if let deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataClosure = deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataClosure {
+            return await deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataClosure(matrixUserID, password, googleIDToken, appleIDToken, eraseData)
+        } else {
+            return deactivateMatrixUserIDPasswordGoogleIDTokenAppleIDTokenEraseDataReturnValue
+        }
+    }
 }
 class ClientProxyMock: ClientProxyProtocol, @unchecked Sendable {
     var actionsPublisher: AnyPublisher<ClientProxyAction, Never> {
@@ -6407,15 +7221,15 @@ class ElementCallWidgetDriverMock: ElementCallWidgetDriverProtocol, @unchecked S
 
     //MARK: - start
 
-    var startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationUnderlyingCallsCount = 0
-    var startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationCallsCount: Int {
+    var startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedUnderlyingCallsCount = 0
+    var startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedCallsCount: Int {
         get {
             if Thread.isMainThread {
-                return startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationUnderlyingCallsCount
+                return startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedUnderlyingCallsCount
             } else {
                 var returnValue: Int? = nil
                 DispatchQueue.main.sync {
-                    returnValue = startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationUnderlyingCallsCount
+                    returnValue = startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedUnderlyingCallsCount
                 }
 
                 return returnValue!
@@ -6423,29 +7237,29 @@ class ElementCallWidgetDriverMock: ElementCallWidgetDriverProtocol, @unchecked S
         }
         set {
             if Thread.isMainThread {
-                startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationUnderlyingCallsCount = newValue
+                startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedUnderlyingCallsCount = newValue
             } else {
                 DispatchQueue.main.sync {
-                    startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationUnderlyingCallsCount = newValue
+                    startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedUnderlyingCallsCount = newValue
                 }
             }
         }
     }
-    var startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationCalled: Bool {
-        return startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationCallsCount > 0
+    var startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedCalled: Bool {
+        return startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedCallsCount > 0
     }
-    var startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationReceivedArguments: (baseURL: URL, clientID: String, colorScheme: ColorScheme, rageshakeURL: String?, analyticsConfiguration: ElementCallAnalyticsConfiguration?)?
-    var startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationReceivedInvocations: [(baseURL: URL, clientID: String, colorScheme: ColorScheme, rageshakeURL: String?, analyticsConfiguration: ElementCallAnalyticsConfiguration?)] = []
+    var startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedReceivedArguments: (baseURL: URL, clientID: String, colorScheme: ColorScheme, rageshakeURL: String?, analyticsConfiguration: ElementCallAnalyticsConfiguration?, startWithVideoMuted: Bool)?
+    var startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedReceivedInvocations: [(baseURL: URL, clientID: String, colorScheme: ColorScheme, rageshakeURL: String?, analyticsConfiguration: ElementCallAnalyticsConfiguration?, startWithVideoMuted: Bool)] = []
 
-    var startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationUnderlyingReturnValue: Result<URL, ElementCallWidgetDriverError>!
-    var startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationReturnValue: Result<URL, ElementCallWidgetDriverError>! {
+    var startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedUnderlyingReturnValue: Result<URL, ElementCallWidgetDriverError>!
+    var startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedReturnValue: Result<URL, ElementCallWidgetDriverError>! {
         get {
             if Thread.isMainThread {
-                return startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationUnderlyingReturnValue
+                return startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedUnderlyingReturnValue
             } else {
                 var returnValue: Result<URL, ElementCallWidgetDriverError>? = nil
                 DispatchQueue.main.sync {
-                    returnValue = startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationUnderlyingReturnValue
+                    returnValue = startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedUnderlyingReturnValue
                 }
 
                 return returnValue!
@@ -6453,26 +7267,26 @@ class ElementCallWidgetDriverMock: ElementCallWidgetDriverProtocol, @unchecked S
         }
         set {
             if Thread.isMainThread {
-                startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationUnderlyingReturnValue = newValue
+                startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedUnderlyingReturnValue = newValue
             } else {
                 DispatchQueue.main.sync {
-                    startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationUnderlyingReturnValue = newValue
+                    startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedUnderlyingReturnValue = newValue
                 }
             }
         }
     }
-    var startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationClosure: ((URL, String, ColorScheme, String?, ElementCallAnalyticsConfiguration?) async -> Result<URL, ElementCallWidgetDriverError>)?
+    var startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedClosure: ((URL, String, ColorScheme, String?, ElementCallAnalyticsConfiguration?, Bool) async -> Result<URL, ElementCallWidgetDriverError>)?
 
-    func start(baseURL: URL, clientID: String, colorScheme: ColorScheme, rageshakeURL: String?, analyticsConfiguration: ElementCallAnalyticsConfiguration?) async -> Result<URL, ElementCallWidgetDriverError> {
-        startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationCallsCount += 1
-        startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationReceivedArguments = (baseURL: baseURL, clientID: clientID, colorScheme: colorScheme, rageshakeURL: rageshakeURL, analyticsConfiguration: analyticsConfiguration)
+    func start(baseURL: URL, clientID: String, colorScheme: ColorScheme, rageshakeURL: String?, analyticsConfiguration: ElementCallAnalyticsConfiguration?, startWithVideoMuted: Bool) async -> Result<URL, ElementCallWidgetDriverError> {
+        startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedCallsCount += 1
+        startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedReceivedArguments = (baseURL: baseURL, clientID: clientID, colorScheme: colorScheme, rageshakeURL: rageshakeURL, analyticsConfiguration: analyticsConfiguration, startWithVideoMuted: startWithVideoMuted)
         DispatchQueue.main.async {
-            self.startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationReceivedInvocations.append((baseURL: baseURL, clientID: clientID, colorScheme: colorScheme, rageshakeURL: rageshakeURL, analyticsConfiguration: analyticsConfiguration))
+            self.startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedReceivedInvocations.append((baseURL: baseURL, clientID: clientID, colorScheme: colorScheme, rageshakeURL: rageshakeURL, analyticsConfiguration: analyticsConfiguration, startWithVideoMuted: startWithVideoMuted))
         }
-        if let startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationClosure = startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationClosure {
-            return await startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationClosure(baseURL, clientID, colorScheme, rageshakeURL, analyticsConfiguration)
+        if let startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedClosure = startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedClosure {
+            return await startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedClosure(baseURL, clientID, colorScheme, rageshakeURL, analyticsConfiguration, startWithVideoMuted)
         } else {
-            return startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationReturnValue
+            return startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedReturnValue
         }
     }
     //MARK: - handleMessage
@@ -6544,6 +7358,84 @@ class ElementCallWidgetDriverMock: ElementCallWidgetDriverProtocol, @unchecked S
             return await handleMessageClosure(message)
         } else {
             return handleMessageReturnValue
+        }
+    }
+}
+class GoogleSignInServiceMock: GoogleSignInServiceProtocol, @unchecked Sendable {
+    var isConfigured: Bool {
+        get { return underlyingIsConfigured }
+        set(value) { underlyingIsConfigured = value }
+    }
+    var underlyingIsConfigured: Bool!
+
+    //MARK: - requestIDToken
+
+    var requestIDTokenPresentingUnderlyingCallsCount = 0
+    var requestIDTokenPresentingCallsCount: Int {
+        get {
+            if Thread.isMainThread {
+                return requestIDTokenPresentingUnderlyingCallsCount
+            } else {
+                var returnValue: Int? = nil
+                DispatchQueue.main.sync {
+                    returnValue = requestIDTokenPresentingUnderlyingCallsCount
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                requestIDTokenPresentingUnderlyingCallsCount = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    requestIDTokenPresentingUnderlyingCallsCount = newValue
+                }
+            }
+        }
+    }
+    var requestIDTokenPresentingCalled: Bool {
+        return requestIDTokenPresentingCallsCount > 0
+    }
+    var requestIDTokenPresentingReceivedViewController: UIViewController?
+    var requestIDTokenPresentingReceivedInvocations: [UIViewController] = []
+
+    var requestIDTokenPresentingUnderlyingReturnValue: GoogleSignInResult!
+    var requestIDTokenPresentingReturnValue: GoogleSignInResult! {
+        get {
+            if Thread.isMainThread {
+                return requestIDTokenPresentingUnderlyingReturnValue
+            } else {
+                var returnValue: GoogleSignInResult? = nil
+                DispatchQueue.main.sync {
+                    returnValue = requestIDTokenPresentingUnderlyingReturnValue
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                requestIDTokenPresentingUnderlyingReturnValue = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    requestIDTokenPresentingUnderlyingReturnValue = newValue
+                }
+            }
+        }
+    }
+    var requestIDTokenPresentingClosure: ((UIViewController) async -> GoogleSignInResult)?
+
+    func requestIDToken(presenting viewController: UIViewController) async -> GoogleSignInResult {
+        requestIDTokenPresentingCallsCount += 1
+        requestIDTokenPresentingReceivedViewController = viewController
+        DispatchQueue.main.async {
+            self.requestIDTokenPresentingReceivedInvocations.append(viewController)
+        }
+        if let requestIDTokenPresentingClosure = requestIDTokenPresentingClosure {
+            return await requestIDTokenPresentingClosure(viewController)
+        } else {
+            return requestIDTokenPresentingReturnValue
         }
     }
 }
@@ -16110,6 +17002,146 @@ class SecureBackupControllerMock: SecureBackupControllerProtocol, @unchecked Sen
             return await confirmRecoveryKeyClosure(key)
         } else {
             return confirmRecoveryKeyReturnValue
+        }
+    }
+    //MARK: - enableRecovery
+
+    var enableRecoveryPassphraseUnderlyingCallsCount = 0
+    var enableRecoveryPassphraseCallsCount: Int {
+        get {
+            if Thread.isMainThread {
+                return enableRecoveryPassphraseUnderlyingCallsCount
+            } else {
+                var returnValue: Int? = nil
+                DispatchQueue.main.sync {
+                    returnValue = enableRecoveryPassphraseUnderlyingCallsCount
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                enableRecoveryPassphraseUnderlyingCallsCount = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    enableRecoveryPassphraseUnderlyingCallsCount = newValue
+                }
+            }
+        }
+    }
+    var enableRecoveryPassphraseCalled: Bool {
+        return enableRecoveryPassphraseCallsCount > 0
+    }
+    var enableRecoveryPassphraseReceivedPassphrase: String?
+    var enableRecoveryPassphraseReceivedInvocations: [String] = []
+
+    var enableRecoveryPassphraseUnderlyingReturnValue: Result<Void, SecureBackupControllerError>!
+    var enableRecoveryPassphraseReturnValue: Result<Void, SecureBackupControllerError>! {
+        get {
+            if Thread.isMainThread {
+                return enableRecoveryPassphraseUnderlyingReturnValue
+            } else {
+                var returnValue: Result<Void, SecureBackupControllerError>? = nil
+                DispatchQueue.main.sync {
+                    returnValue = enableRecoveryPassphraseUnderlyingReturnValue
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                enableRecoveryPassphraseUnderlyingReturnValue = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    enableRecoveryPassphraseUnderlyingReturnValue = newValue
+                }
+            }
+        }
+    }
+    var enableRecoveryPassphraseClosure: ((String) async -> Result<Void, SecureBackupControllerError>)?
+
+    func enableRecovery(passphrase: String) async -> Result<Void, SecureBackupControllerError> {
+        enableRecoveryPassphraseCallsCount += 1
+        enableRecoveryPassphraseReceivedPassphrase = passphrase
+        DispatchQueue.main.async {
+            self.enableRecoveryPassphraseReceivedInvocations.append(passphrase)
+        }
+        if let enableRecoveryPassphraseClosure = enableRecoveryPassphraseClosure {
+            return await enableRecoveryPassphraseClosure(passphrase)
+        } else {
+            return enableRecoveryPassphraseReturnValue
+        }
+    }
+    //MARK: - recover
+
+    var recoverPassphraseUnderlyingCallsCount = 0
+    var recoverPassphraseCallsCount: Int {
+        get {
+            if Thread.isMainThread {
+                return recoverPassphraseUnderlyingCallsCount
+            } else {
+                var returnValue: Int? = nil
+                DispatchQueue.main.sync {
+                    returnValue = recoverPassphraseUnderlyingCallsCount
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                recoverPassphraseUnderlyingCallsCount = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    recoverPassphraseUnderlyingCallsCount = newValue
+                }
+            }
+        }
+    }
+    var recoverPassphraseCalled: Bool {
+        return recoverPassphraseCallsCount > 0
+    }
+    var recoverPassphraseReceivedPassphrase: String?
+    var recoverPassphraseReceivedInvocations: [String] = []
+
+    var recoverPassphraseUnderlyingReturnValue: Result<Void, SecureBackupControllerError>!
+    var recoverPassphraseReturnValue: Result<Void, SecureBackupControllerError>! {
+        get {
+            if Thread.isMainThread {
+                return recoverPassphraseUnderlyingReturnValue
+            } else {
+                var returnValue: Result<Void, SecureBackupControllerError>? = nil
+                DispatchQueue.main.sync {
+                    returnValue = recoverPassphraseUnderlyingReturnValue
+                }
+
+                return returnValue!
+            }
+        }
+        set {
+            if Thread.isMainThread {
+                recoverPassphraseUnderlyingReturnValue = newValue
+            } else {
+                DispatchQueue.main.sync {
+                    recoverPassphraseUnderlyingReturnValue = newValue
+                }
+            }
+        }
+    }
+    var recoverPassphraseClosure: ((String) async -> Result<Void, SecureBackupControllerError>)?
+
+    func recover(passphrase: String) async -> Result<Void, SecureBackupControllerError> {
+        recoverPassphraseCallsCount += 1
+        recoverPassphraseReceivedPassphrase = passphrase
+        DispatchQueue.main.async {
+            self.recoverPassphraseReceivedInvocations.append(passphrase)
+        }
+        if let recoverPassphraseClosure = recoverPassphraseClosure {
+            return await recoverPassphraseClosure(passphrase)
+        } else {
+            return recoverPassphraseReturnValue
         }
     }
     //MARK: - waitForKeyBackupUpload

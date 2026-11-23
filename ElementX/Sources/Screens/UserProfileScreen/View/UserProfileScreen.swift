@@ -53,6 +53,18 @@ struct UserProfileScreen: View {
     }
     
     private var otherUserFooter: some View {
+        VStack(spacing: 0) {
+            // Clariva: the consultant designation, right under the name.
+            if let designationBadge = context.viewState.designationBadge {
+                DesignationBadge(text: designationBadge, maxWidth: 240)
+                    .padding(.top, 8)
+            }
+            
+            actionButtons
+        }
+    }
+    
+    private var actionButtons: some View {
         HStack(spacing: 8) {
             if context.viewState.userProfile != nil, !context.viewState.isOwnUser {
                 Button {

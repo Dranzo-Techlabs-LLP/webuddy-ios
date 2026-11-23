@@ -4,6 +4,10 @@
 <dict>
 	<key>aps-environment</key>
 	<string>development</string>
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>applinks:element.io</string>
@@ -14,6 +18,7 @@
 		<string>applinks:call.element.io</string>
 		<string>applinks:call.element.dev</string>
 		<string>applinks:matrix.to</string>
+		<string>applinks:clarivahub.com</string>
 		<string>webcredentials:*.element.io</string>
 	</array>
 	<key>com.apple.developer.usernotifications.communication</key>

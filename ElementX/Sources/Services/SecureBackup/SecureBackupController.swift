@@ -154,7 +154,69 @@ class SecureBackupController: SecureBackupControllerProtocol {
             return .failure(.failedConfirmingRecoveryKey)
         }
     }
-        
+
+    // MARK: - Clariva
+
+    func enableRecovery(passphrase: String) async -> Result<Void, SecureBackupControllerError> {
+        do {
+            MXLog.info("Enabling recovery with passphrase")
+
+            var keyUploadErrored = false
+            _ = try await encryption.enableRecovery(waitForBackupsToUpload: false, passphrase: passphrase, progressListener: SDKListener { [weak self] state in
+                guard let self else { return }
+
+                switch state {
+                case .starting, .creatingBackup, .creatingRecoveryKey, .backingUp:
+                    recoveryStateSubject.send(.settingUp)
+                case .done:
+                    recoveryStateSubject.send(.enabled)
+                case .roomKeyUploadError:
+                    MXLog.error("Failed enabling recovery with passphrase: room key upload error")
+                    keyUploadErrored = true
+                }
+            })
+
+            if keyUploadErrored {
+                // Secret storage and the backup exist at this point; uploading resumes in the background.
+                MXLog.warning("Recovery enabled but the initial room key upload failed.")
+            }
+            return .success(())
+        } catch let error as RecoveryError {
+            MXLog.error("Failed enabling recovery with passphrase: \(error)")
+            if case .BackupExistsOnServer = error {
+                return .failure(.backupExistsOnServer)
+            }
+            return .failure(.failedEnablingRecovery)
+        } catch {
+            MXLog.error("Failed enabling recovery with passphrase: \(error)")
+            return .failure(.failedEnablingRecovery)
+        }
+    }
+
+    func recover(passphrase: String) async -> Result<Void, SecureBackupControllerError> {
+        do {
+            MXLog.info("Recovering with passphrase")
+            try await encryption.recover(recoveryKey: passphrase)
+            return .success(())
+        } catch let error as RecoveryError {
+            switch error {
+            case .Import:
+                // Same as Android: import errors are reported by the "key storage out of sync" detection.
+                MXLog.warning("Recovered with passphrase but some secrets failed to import: \(error)")
+                return .success(())
+            case .SecretStorage:
+                MXLog.error("Secret storage can't be opened with the passphrase: \(error)")
+                return .failure(.secretStorageNotOpenable)
+            default:
+                MXLog.error("Failed recovering with passphrase: \(error)")
+                return .failure(.failedRecovering)
+            }
+        } catch {
+            MXLog.error("Failed recovering with passphrase: \(error)")
+            return .failure(.failedRecovering)
+        }
+    }
+
     func waitForKeyBackupUpload(uploadStateSubject: CurrentValueSubject<SecureBackupSteadyState, Never>) async -> Result<Void, SecureBackupControllerError> {
         do {
             MXLog.info("Waiting for backup upload steady state")

@@ -22,6 +22,8 @@ struct RoomMemberDetailsScreenViewState: BindableState {
     var isOwnMemberDetails = false
     var isProcessingIgnoreRequest = false
     var dmRoomID: String?
+    /// Clariva: the member's designation when they are a consultant ("Consultant" by default).
+    var designationBadge: String?
 
     var bindings: RoomMemberDetailsScreenViewStateBindings
     
@@ -100,5 +102,7 @@ enum RoomMemberDetailsScreenViewAction {
 
 enum RoomMemberDetailsScreenAlertType: Hashable {
     case failedOpeningDirectChat
+    /// Clariva: a consultant tried to start a chat with another consultant (Android ee053dc156).
+    case consultantChatNotAllowed
     case unknown
 }

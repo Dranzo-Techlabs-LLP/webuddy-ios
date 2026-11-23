@@ -113,6 +113,12 @@ class SettingsFlowCoordinator: FlowCoordinatorProtocol {
                     presentDeveloperOptions()
                 case .deactivateAccount:
                     presentDeactivateAccount()
+                case .myQRCode:
+                    presentMyQRCodeScreen()
+                case .billingAndPayments:
+                    presentBillingAndPayments()
+                case .lastSeenPrivacy:
+                    presentLastSeenPrivacy()
                 }
             }
             .store(in: &cancellables)
@@ -263,6 +269,62 @@ class SettingsFlowCoordinator: FlowCoordinatorProtocol {
                 switch action {
                 case .clearCache:
                     actionsSubject.send(.clearCache)
+                }
+            }
+            .store(in: &cancellables)
+        
+        navigationStackCoordinator.push(coordinator)
+    }
+    
+    // MARK: Clariva
+    
+    private func presentMyQRCodeScreen() {
+        let coordinator = MyQRCodeScreenCoordinator(parameters: .init(userSession: flowParameters.userSession))
+        navigationStackCoordinator.push(coordinator)
+    }
+    
+    /// Android ee053dc156 `PreferencesFlowNode.NavTarget.LastSeenPrivacy`.
+    private func presentLastSeenPrivacy() {
+        guard let profileService = ServiceLocator.shared.clarivaProfile else {
+            MXLog.error("The Clariva profile service hasn't been registered.")
+            return
+        }
+        
+        let coordinator = LastSeenPrivacyScreenCoordinator(parameters: .init(userSession: flowParameters.userSession,
+                                                                             profileService: profileService,
+                                                                             userIndicatorController: flowParameters.userIndicatorController))
+        navigationStackCoordinator.push(coordinator)
+    }
+    
+    private func presentBillingAndPayments() {
+        guard let wallet = ServiceLocator.shared.wallet else {
+            MXLog.error("The wallet service hasn't been registered.")
+            return
+        }
+        
+        let coordinator = BillingAndPaymentsScreenCoordinator(parameters: .init(userID: flowParameters.userSession.clientProxy.userID,
+                                                                                wallet: wallet))
+        coordinator.actionsPublisher
+            .sink { [weak self] action in
+                switch action {
+                case .bankDetails:
+                    self?.presentBankDetails(wallet: wallet)
+                }
+            }
+            .store(in: &cancellables)
+        
+        navigationStackCoordinator.push(coordinator)
+    }
+    
+    private func presentBankDetails(wallet: WalletService) {
+        let coordinator = BankDetailsScreenCoordinator(parameters: .init(userID: flowParameters.userSession.clientProxy.userID,
+                                                                         wallet: wallet,
+                                                                         userIndicatorController: flowParameters.userIndicatorController))
+        coordinator.actionsPublisher
+            .sink { [weak self] action in
+                switch action {
+                case .done:
+                    self?.navigationStackCoordinator.pop()
                 }
             }
             .store(in: &cancellables)

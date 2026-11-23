@@ -82,7 +82,8 @@ class AuthenticationServiceTests: XCTestCase {
         }
         
         XCTAssertEqual(service.flow, .login)
-        XCTAssertEqual(service.homeserver.value, .init(address: "matrix.org", loginMode: .unknown))
+        // The service resets to the default account provider, which Clariva sets to clarivahub.com.
+        XCTAssertEqual(service.homeserver.value, .init(address: ClarivaConfig.accountProvider, loginMode: .unknown))
     }
     
     // MARK: - Helpers

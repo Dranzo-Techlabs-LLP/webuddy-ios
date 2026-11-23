@@ -10,6 +10,8 @@ import Foundation
 
 enum StartChatScreenErrorType: Error {
     case failedCreatingRoom
+    /// Clariva: a consultant tried to start a chat with another consultant (Android ee053dc156).
+    case consultantChatNotAllowed
     case unknown
 }
 
@@ -18,6 +20,7 @@ enum StartChatScreenViewModelAction: Equatable {
     case createRoom
     case showRoom(roomID: String)
     case openRoomDirectorySearch
+    case scanQRCode
 }
 
 struct StartChatScreenViewState: BindableState {
@@ -25,6 +28,8 @@ struct StartChatScreenViewState: BindableState {
     var bindings = StartChatScreenViewStateBindings()
     var usersSection: UserDiscoverySection = .init(type: .suggestions, users: [])
     var isRoomDirectoryEnabled = false
+    /// Clariva: shows the group-room entries ("New room", "Join room by address").
+    var areGroupRoomsEnabled = ClarivaConfig.groupRoomsEnabled
 
     var isSearching: Bool {
         !bindings.searchQuery.isEmpty
@@ -55,6 +60,7 @@ enum StartChatScreenViewAction {
     case selectUser(UserProfileProxy)
     case joinRoomByAddress
     case openRoomDirectorySearch
+    case scanQRCode
 }
 
 enum JoinByAddressState: Equatable {

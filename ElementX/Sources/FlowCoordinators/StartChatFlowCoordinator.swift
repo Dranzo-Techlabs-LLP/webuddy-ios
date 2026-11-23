@@ -10,9 +10,19 @@ import Combine
 import Foundation
 import SwiftState
 
-enum StartChatFlowCoordinatorAction {
+enum StartChatFlowCoordinatorAction: CustomStringConvertible {
     case finished(roomID: String?)
     case showRoomDirectory
+    /// A user was found with "Scan QR code": the flow should be dismissed and their profile shown.
+    case showUserProfile(userID: String)
+    
+    var description: String {
+        switch self {
+        case .finished(let roomID): "finished(roomID: \(roomID ?? "nil"))"
+        case .showRoomDirectory: "showRoomDirectory"
+        case .showUserProfile: "showUserProfile" // Don't log the user ID.
+        }
+    }
 }
 
 class StartChatFlowCoordinator: FlowCoordinatorProtocol {
@@ -36,6 +46,8 @@ class StartChatFlowCoordinator: FlowCoordinatorProtocol {
         case roomAvatarPicker
         /// The user is inviting users to a newly created room.
         case inviteUsers
+        /// The user is scanning another user's QR code.
+        case scanQRCode
     }
     
     enum Event: EventType {
@@ -54,6 +66,11 @@ class StartChatFlowCoordinator: FlowCoordinatorProtocol {
         
         /// The user's room was created successfully.
         case createdRoom
+        
+        /// The user would like to scan another user's QR code.
+        case scanQRCode
+        /// The user dismissed the QR code scanner.
+        case dismissedScanQRCode
     }
     
     private let stateMachine: StateMachine<State, Event>
@@ -103,6 +120,9 @@ class StartChatFlowCoordinator: FlowCoordinatorProtocol {
             navigationStackCoordinator.pop(animated: animated) // InviteUsersScreen
             navigationStackCoordinator.pop(animated: animated) // CreateRoomScreen
             navigationStackCoordinator.setRootCoordinator(nil, animated: animated) // StartChatScreen
+        case .scanQRCode:
+            navigationStackCoordinator.pop(animated: animated) // ScanUserQRCodeScreen
+            navigationStackCoordinator.setRootCoordinator(nil, animated: animated) // StartChatScreen
         }
     }
     
@@ -135,6 +155,11 @@ class StartChatFlowCoordinator: FlowCoordinatorProtocol {
             self?.presentInviteUsersScreen(roomProxy: roomProxy)
         }
         
+        stateMachine.addRoutes(event: .scanQRCode, transitions: [.startChat => .scanQRCode]) { [weak self] _ in
+            self?.presentScanQRCodeScreen()
+        }
+        stateMachine.addRoutes(event: .dismissedScanQRCode, transitions: [.scanQRCode => .startChat])
+        
         stateMachine.addErrorHandler { context in
             if context.fromState == context.toState {
                 MXLog.error("Transition between equal states: \(context.fromState)")
@@ -163,6 +188,8 @@ class StartChatFlowCoordinator: FlowCoordinatorProtocol {
                 actionsSubject.send(.finished(roomID: roomID))
             case .openRoomDirectorySearch:
                 actionsSubject.send(.showRoomDirectory)
+            case .scanQRCode:
+                stateMachine.tryEvent(.scanQRCode)
             }
         }
         .store(in: &cancellables)
@@ -216,6 +243,24 @@ class StartChatFlowCoordinator: FlowCoordinatorProtocol {
         
         navigationStackCoordinator.setSheetCoordinator(stackCoordinator) { [weak self] in
             self?.stateMachine.tryEvent(.dismissedRoomAvatarPicker)
+        }
+    }
+    
+    private func presentScanQRCodeScreen() {
+        let coordinator = ScanUserQRCodeScreenCoordinator(parameters: .init(appMediator: flowParameters.appMediator))
+        coordinator.actionsPublisher.sink { [weak self] action in
+            guard let self else { return }
+            switch action {
+            case .userScanned(let userID):
+                // Android replaces the scanner with the user's profile. Here the whole start chat
+                // flow is dismissed and the profile is presented like a `.userProfile` deep link.
+                actionsSubject.send(.showUserProfile(userID: userID))
+            }
+        }
+        .store(in: &cancellables)
+        
+        navigationStackCoordinator.push(coordinator) { [weak self] in
+            self?.stateMachine.tryEvent(.dismissedScanQRCode)
         }
     }
     

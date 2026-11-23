@@ -29,7 +29,6 @@ class AdvancedSettingsScreenViewModel: AdvancedSettingsScreenViewModelType, Adva
         
         let state = AdvancedSettingsScreenViewState(timelineMediaVisibility: clientProxy.timelineMediaVisibilityPublisher.value,
                                                     hideInviteAvatars: clientProxy.hideInviteAvatarsPublisher.value,
-                                                    currentUserID: clientProxy.userID,
                                                     bindings: .init(advancedSettings: advancedSettings))
         super.init(initialViewState: state)
         

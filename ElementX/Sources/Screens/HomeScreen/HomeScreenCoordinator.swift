@@ -17,6 +17,8 @@ struct HomeScreenCoordinatorParameters {
     let analyticsService: AnalyticsService
     let notificationManager: NotificationManagerProtocol
     let userIndicatorController: UserIndicatorControllerProtocol
+    /// Clariva: keeps the account "online" during a call while the app is in the background.
+    let ongoingCallRoomIDPublisher: CurrentValuePublisher<String?, Never>
 }
 
 enum HomeScreenCoordinatorAction {
@@ -55,7 +57,8 @@ final class HomeScreenCoordinator: CoordinatorProtocol {
                                         appSettings: parameters.appSettings,
                                         analyticsService: parameters.analyticsService,
                                         notificationManager: parameters.notificationManager,
-                                        userIndicatorController: parameters.userIndicatorController)
+                                        userIndicatorController: parameters.userIndicatorController,
+                                        ongoingCallRoomIDPublisher: parameters.ongoingCallRoomIDPublisher)
         bugReportService = parameters.bugReportService
         
         viewModel.actions

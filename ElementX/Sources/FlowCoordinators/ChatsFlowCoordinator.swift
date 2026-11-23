@@ -368,7 +368,8 @@ class ChatsFlowCoordinator: FlowCoordinatorProtocol {
                                                          appSettings: flowParameters.appSettings,
                                                          analyticsService: flowParameters.analytics,
                                                          notificationManager: flowParameters.notificationManager,
-                                                         userIndicatorController: flowParameters.userIndicatorController)
+                                                         userIndicatorController: flowParameters.userIndicatorController,
+                                                         ongoingCallRoomIDPublisher: flowParameters.ongoingCallRoomIDPublisher)
         let coordinator = HomeScreenCoordinator(parameters: parameters)
         
         coordinator.actions
@@ -585,6 +586,11 @@ class ChatsFlowCoordinator: FlowCoordinatorProtocol {
                 case .showRoomDirectory:
                     navigationSplitCoordinator.setSheetCoordinator(nil)
                     stateMachine.processEvent(.showRoomDirectorySearchScreen)
+                case .showUserProfile(let userID):
+                    // Clariva: a user scanned with "Scan QR code". Reuse the `.userProfile` deep link
+                    // path: it dismisses this sheet (finishing the flow), waits for the dismissal to
+                    // settle and then presents the profile sheet.
+                    handleAppRoute(.userProfile(userID: userID), animated: true)
                 }
             }
             .store(in: &cancellables)

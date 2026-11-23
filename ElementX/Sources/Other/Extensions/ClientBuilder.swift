@@ -42,7 +42,10 @@ extension ClientBuilder {
                 .autoEnableCrossSigning(autoEnableCrossSigning: true)
                 .backupDownloadStrategy(backupDownloadStrategy: .afterDecryptionFailure)
                 .enableShareHistoryOnInvite(enableShareHistoryOnInvite: enableKeyShareOnInvite)
-                .autoEnableBackups(autoEnableBackups: true)
+                // Clariva: backups are created by `ClarivaKeyStorageService` together with secret storage,
+                // locked with the server-provided passphrase. Auto-enabling would create an orphaned
+                // backup at login and make `enableRecovery` fail with `BackupExistsOnServer`.
+                .autoEnableBackups(autoEnableBackups: false)
         }
 
         // Set recipient strategy and trust requirement even if `setupEncryption` is false to ensure messages

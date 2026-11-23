@@ -124,8 +124,11 @@ class OnboardingFlowCoordinator: FlowCoordinatorProtocol {
     // MARK: - Private
     
     private var requiresVerification: Bool {
-        // We want to make sure onboarding finishes but also every time the user becomes unverified (e.g. account reset)
-        !appSettings.hasRunIdentityConfirmationOnboarding || userSession.sessionSecurityStatePublisher.value.verificationState == .unverified
+        // Clariva (Android bc6a400746 DefaultFtueService): session verification is never mandatory.
+        // Clariva users never verify devices; the device self-signs when key storage is unlocked
+        // with the server-provided passphrase at sign-in, and a new device must never be blocked
+        // on a "Confirm your identity" screen.
+        false
     }
     
     private var requiresAppLockSetup: Bool {

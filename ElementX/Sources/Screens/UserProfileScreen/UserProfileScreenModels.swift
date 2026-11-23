@@ -23,6 +23,8 @@ struct UserProfileScreenViewState: BindableState {
     var isVerified: Bool?
     var permalink: URL?
     var dmRoomID: String?
+    /// Clariva: the user's designation when they are a consultant ("Consultant" by default).
+    var designationBadge: String?
 
     var bindings: UserProfileScreenViewStateBindings
     
@@ -49,5 +51,7 @@ enum UserProfileScreenViewAction {
 
 enum UserProfileScreenAlertType: Hashable {
     case failedOpeningDirectChat
+    /// Clariva: a consultant tried to start a chat with another consultant (Android ee053dc156).
+    case consultantChatNotAllowed
     case unknown
 }

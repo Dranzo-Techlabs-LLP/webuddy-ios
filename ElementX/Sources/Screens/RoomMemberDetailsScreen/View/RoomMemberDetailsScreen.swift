@@ -49,14 +49,22 @@ struct RoomMemberDetailsScreen: View {
                              mediaProvider: context.mediaProvider) { url in
                 context.send(viewAction: .displayAvatar(url))
             } footer: {
-                VStack(spacing: 24) {
-                    if context.viewState.showWithdrawVerificationSection {
-                        withdrawVerificationSection
+                VStack(spacing: 0) {
+                    // Clariva: the consultant designation, right under the name.
+                    if let designationBadge = context.viewState.designationBadge {
+                        DesignationBadge(text: designationBadge, maxWidth: 240)
+                            .padding(.top, 8)
                     }
                     
-                    otherUserFooter
+                    VStack(spacing: 24) {
+                        if context.viewState.showWithdrawVerificationSection {
+                            withdrawVerificationSection
+                        }
+                        
+                        otherUserFooter
+                    }
+                    .padding(.top, 24)
                 }
-                .padding(.top, 24)
             }
         } else {
             AvatarHeaderView(user: UserProfileProxy(userID: context.viewState.userID),

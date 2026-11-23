@@ -31,8 +31,10 @@ struct CallNotificationRoomTimelineView: View {
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 
+                // Clariva (Android f825b91c6d): the ring event can't tell voice from video, so use a
+                // neutral phone icon rather than claiming every call was a video call.
                 Label(title: { Text(L10n.commonCallStarted) },
-                      icon: { CompoundIcon(\.videoCallSolid, size: .medium, relativeTo: .compound.bodyMD) })
+                      icon: { CompoundIcon(\.voiceCallSolid, size: .medium, relativeTo: .compound.bodyMD) })
                     .font(.compound.bodyMD)
                     .foregroundColor(.compound.textSecondary)
                     .labelStyle(.custom(spacing: 4))

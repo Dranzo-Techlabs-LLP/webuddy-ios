@@ -22,6 +22,7 @@ enum StartChatScreenCoordinatorAction {
     case createRoom
     case openRoom(roomID: String)
     case openRoomDirectorySearch
+    case scanQRCode
 }
 
 final class StartChatScreenCoordinator: CoordinatorProtocol {
@@ -56,6 +57,8 @@ final class StartChatScreenCoordinator: CoordinatorProtocol {
                 actionsSubject.send(.openRoom(roomID: roomID))
             case .openRoomDirectorySearch:
                 actionsSubject.send(.openRoomDirectorySearch)
+            case .scanQRCode:
+                actionsSubject.send(.scanQRCode)
             }
         }
         .store(in: &cancellables)

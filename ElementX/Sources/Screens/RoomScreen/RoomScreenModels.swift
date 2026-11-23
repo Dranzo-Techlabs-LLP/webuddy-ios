@@ -31,13 +31,18 @@ enum RoomScreenViewAction {
     case dismissKnockRequests
     case viewKnockRequests
     case displaySuccessorRoom
-    /// Client taps "Request refund" on the consultant chat (only valid when an active hold
-    /// exists and refund hasn't been requested yet). Mirrors Android `MessagesEvents.RequestRefund`.
-    case requestRefund
-    /// Consultant taps "Approve" on the refund banner. Mirrors Android `ApproveRefund`.
-    case approveRefund
-    /// Consultant taps "Reject" on the refund banner. Mirrors Android `RejectRefund`.
-    case rejectRefund
+    /// The DM call chooser's "Voice call" / "Video call" choice (Android `onStartCallWithType`).
+    case startCall(isVoice: Bool)
+    /// Client taps "Request refund" in the top bar: shows the "Request Refund" confirmation, whose
+    /// "Request" button sends the request (Android `MessagesEvents.RequestRefund`).
+    case requestRefundTapped
+    /// Consultant taps "Approve" on the refund banner: presents the Full/Partial approve sheet.
+    case approveRefundTapped
+    /// Consultant confirms the approve sheet. `amount == nil` ⇒ full refund (Android `ApproveRefund`).
+    case approveRefund(amount: Double?)
+    /// Consultant taps "Reject" on the refund banner: shows the "Reject Refund" confirmation, whose
+    /// "Reject" button rejects the request (Android `RejectRefund`).
+    case rejectRefundTapped
     /// Snackbar consumed; clear it so the next refund event can show one.
     case clearRefundSnackbar
 }
@@ -64,9 +69,27 @@ struct RoomScreenViewState: BindableState {
     var hasOngoingCall: Bool
     /// Whether or not the user is already part of a call in another room.
     var isParticipatingInOngoingCall = false
+    /// Whether the room is a 1:1 DM, which gets the Voice/Video call chooser.
+    var isDirectOneToOneRoom = false
+    /// The type recorded server-side for the ongoing call (`GET v1/calls/type`); picks the Join icon.
+    /// Unknown defaults to voice, like Android.
+    var ongoingCallIsVideo = false
     var shouldShowCallButton: Bool {
-        isCallingEnabled && !isParticipatingInOngoingCall // Hide the join call button when already in the call
+        isCallingEnabled &&
+            !isParticipatingInOngoingCall && // Hide the join call button when already in the call
+            !chatGate.isRestricted && // Clariva: a client who can't afford the consultant can't call either
+            !isConsultantPeerBlocked // Clariva: nor can two consultants (Android ee053dc156)
     }
+    
+    /// Clariva chat/call credit gate (see `ChatWalletGate`).
+    var chatGate = ChatGateState()
+    
+    /// Clariva: both sides of this DM are confirmed consultants. Consultants may only chat with
+    /// clients, so the composer is replaced by that reason and calls are hidden (Android
+    /// `MessageComposerState.isConsultantPeerBlocked`). An unknown role never blocks.
+    var isConsultantPeerBlocked = false
+    /// Clariva DM header: the partner's designation badge and "online" / "last seen …" label.
+    var dmPeerStatus = DMPeerStatus()
     
     var isKnockingEnabled = false
     var isKnockableRoom = false
@@ -100,6 +123,8 @@ struct RoomScreenViewState: BindableState {
     var refundPendingHoldId: String?
     /// Refund request row id needed to approve/reject. Non-nil only when refundStatus == requested.
     var refundRequestId: String?
+    /// The held amount (`PendingHoldStatusResponse.amount`), the upper bound of a partial refund.
+    var refundHeldAmount: Double?
     /// Whether the local user is the consultant on this DM hold (server-authoritative —
     /// derived from `consultantId` returned by /pending-holds/status, not local role flag).
     var isConsultantInThisRoom = false
@@ -127,6 +152,24 @@ struct RoomScreenViewState: BindableState {
 struct RoomScreenViewStateBindings {
     /// The view model used to present a QuickLook media preview.
     var mediaPreviewViewModel: TimelineMediaPreviewViewModel?
+    
+    /// Refund confirmations and the "Start a new session?" warning.
+    var alertInfo: AlertInfo<RoomScreenAlertType>?
+    
+    /// The consultant's Full/Partial refund sheet.
+    var approveRefundSheet: ApproveRefundSheetModel?
+}
+
+enum RoomScreenAlertType: Hashable {
+    case newSessionWarning
+    case requestRefund
+    case rejectRefund
+}
+
+struct ApproveRefundSheetModel: Identifiable {
+    let id = UUID()
+    /// The held amount, when known.
+    let heldAmount: Double?
 }
 
 enum RoomScreenFooterViewAction {

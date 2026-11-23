@@ -5,3 +5,7 @@ settings:
   BASE_BUNDLE_IDENTIFIER: io.element.elementx
   ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: "colors/accent-color"
   DEVELOPMENT_TEAM: 7J4U792NQT
+  # Google Sign-In (iOS OAuth client from GCP project 462109274571, same project as the web client
+  # in ClarivaConfig.googleServerClientID). Paste ONLY the part before ".apps.googleusercontent.com",
+  # e.g. 462109274571-abc123def456. Empty = Google sign-in disabled. See docs/GOOGLE_SIGN_IN_IOS.md.
+  GOOGLE_IOS_CLIENT_NUMBER: "462109274571-gj1s82b8qfe31692nee1k0tbokph4lvi"

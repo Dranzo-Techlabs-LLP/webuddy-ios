@@ -71,13 +71,15 @@ final class ElementCallWidgetDriver: WidgetCapabilitiesProvider, ElementCallWidg
                clientID: String,
                colorScheme: ColorScheme,
                rageshakeURL: String?,
-               analyticsConfiguration: ElementCallAnalyticsConfiguration?) async -> Result<URL, ElementCallWidgetDriverError> {
+               analyticsConfiguration: ElementCallAnalyticsConfiguration?,
+               startWithVideoMuted: Bool) async -> Result<URL, ElementCallWidgetDriverError> {
         guard let room = room as? Room else {
             return .failure(.roomInvalid)
         }
         
         async let useEncryption = (try? room.latestEncryptionState() == .encrypted) ?? false
-        async let intent = room.joinCallIntent
+        let intent = await room.joinCallIntent(startWithVideoMuted: startWithVideoMuted)
+        MXLog.info("Starting/joining call with intent: \(intent)")
         
         let widgetSettings: WidgetSettings
         do {
@@ -143,6 +145,7 @@ final class ElementCallWidgetDriver: WidgetCapabilitiesProvider, ElementCallWidg
                 MXLog.debug("Received message: \(receivedMessage)")
                 
                 self?.handleMessageIfNeeded(receivedMessage)
+                self?.handleSendEventResponseIfNeeded(receivedMessage)
             }
         }
         
@@ -209,4 +212,56 @@ final class ElementCallWidgetDriver: WidgetCapabilitiesProvider, ElementCallWidg
             MXLog.verbose("Failed processing widget message with error: \(error)")
         }
     }
+    
+    // MARK: - Clariva: own ring event (F9)
+    
+    /// The event types Element Call uses for the ring sent when starting a call (MSC4075).
+    private static let rtcNotificationEventTypes: Set<String> = ["m.rtc.notification", "org.matrix.msc4075.rtc.notification"]
+    
+    /// Element Call sends the call's ring itself, through the widget API, so the app is never handed
+    /// its event ID. The SDK's reply to that `send_event` request echoes the request (including its
+    /// `data.type`) and adds `response.event_id`, so capture it from there.
+    ///
+    /// Expected shape (verify against the `Received message:` debug logs on a device):
+    /// `{"api":"fromWidget","action":"send_event","data":{"type":"org.matrix.msc4075.rtc.notification",…},"response":{"room_id":"!…","event_id":"$…"},…}`
+    private func handleSendEventResponseIfNeeded(_ message: String) {
+        guard message.contains("send_event"),
+              let data = message.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(WidgetSendEventResponse.self, from: data),
+              decoded.api == ElementCallWidgetMessage.Direction.fromWidget.rawValue,
+              decoded.action == "send_event",
+              let eventType = decoded.data?.type,
+              Self.rtcNotificationEventTypes.contains(eventType) else {
+            return
+        }
+        
+        guard let eventID = decoded.response?.eventID else {
+            MXLog.warning("Element Call's rtc notification wasn't sent: \(message)")
+            return
+        }
+        
+        MXLog.info("Element Call sent rtc notification \(eventID) (\(eventType))")
+        actionsSubject.send(.rtcNotificationSent(eventID: eventID))
+    }
+}
+
+/// The SDK's reply to a widget `send_event` request. Every field is optional so that unrelated
+/// messages simply fail the checks above instead of throwing.
+private struct WidgetSendEventResponse: Decodable {
+    struct RequestData: Decodable {
+        let type: String?
+    }
+    
+    struct ResponseData: Decodable {
+        let eventID: String?
+        
+        enum CodingKeys: String, CodingKey {
+            case eventID = "event_id"
+        }
+    }
+    
+    let api: String?
+    let action: String?
+    let data: RequestData?
+    let response: ResponseData?
 }

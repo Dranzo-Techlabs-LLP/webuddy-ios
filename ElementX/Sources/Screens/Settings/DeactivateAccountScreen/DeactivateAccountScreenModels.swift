@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import UIKit
 
 enum DeactivateAccountScreenViewModelAction {
     case accountDeactivated
@@ -19,7 +20,30 @@ struct DeactivateAccountScreenViewState: BindableState {
     let infoPoint3 = AttributedString(L10n.screenDeactivateAccountListItem3)
     let infoPoint4 = AttributedString(L10n.screenDeactivateAccountListItem4)
     
+    /// Clariva: whether the account re-authenticates with Google (no password) rather than a password.
+    /// nil while loading or when the API couldn't tell, in which case deactivation isn't possible.
+    var isGoogleAccount: Bool?
+    /// Clariva: a fresh Google ID token or Apple identity token is held, proving ownership of an
+    /// account without a password (made with Google or Apple).
+    var hasGoogleToken = false
+    /// Which provider re-authorised: shown in the confirmation row.
+    var authorizedProvider = "Google"
+    /// The presentation anchor used for Google Sign-In.
+    var window: UIWindow?
+    
     var bindings = DeactivateAccountScreenViewStateBindings()
+    
+    /// Exactly one proof is required: a password for an email account, a Google token for a Google one.
+    var canSubmit: Bool {
+        switch isGoogleAccount {
+        case .none:
+            false
+        case .some(true):
+            hasGoogleToken
+        case .some(false):
+            !bindings.password.isEmpty
+        }
+    }
     
     init() {
         let boldPlaceholder = "{bold}"
@@ -46,8 +70,14 @@ struct DeactivateAccountScreenViewStateBindings {
 enum DeactivateAccountScreenAlert {
     case confirmation
     case deactivationFailed
+    case googleAuthorizationFailed
 }
 
 enum DeactivateAccountScreenViewAction {
     case deactivate
+    /// Clariva: re-authorise with Google instead of entering a password.
+    case authorizeWithGoogle
+    /// Clariva: the outcome of re-authorising with Apple (the button presents the sheet itself).
+    case authorizedWithApple(ClarivaAppleSignInResult)
+    case updateWindow(UIWindow)
 }

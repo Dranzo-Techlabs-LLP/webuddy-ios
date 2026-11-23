@@ -66,8 +66,16 @@ targets:
               $(BASE_BUNDLE_IDENTIFIER), # The app's own scheme for custom routes
               "matrix" # Matrix URI scheme for permalinks
             ]
+          },
+          {
+            CFBundleTypeRole: Editor,
+            CFBundleURLName: "Google Sign-In",
+            CFBundleURLSchemes: [
+              com.googleusercontent.apps.$(GOOGLE_IOS_CLIENT_NUMBER) # Reversed iOS client ID (OAuth redirect)
+            ]
           }
         ]
+        GIDClientID: $(GOOGLE_IOS_CLIENT_NUMBER).apps.googleusercontent.com
         UISupportedInterfaceOrientations: [
           UIInterfaceOrientationPortrait,
           UIInterfaceOrientationPortraitUpsideDown,
@@ -111,11 +119,15 @@ targets:
           NSExceptionDomains:
             localhost:
               NSExceptionAllowsInsecureHTTPLoads: true
+        # UPI apps Razorpay checkout hands off to (canOpenURL requires them to be declared).
+        LSApplicationQueriesSchemes: [upi, tez, phonepe, paytmmp, credpay, bhim]
 
     entitlements:
       path: ElementX.entitlements
       properties:
         aps-environment: development
+        com.apple.developer.applesignin:
+        - Default
         com.apple.developer.associated-domains:
         - applinks:element.io
         - applinks:app.element.io
@@ -125,6 +137,7 @@ targets:
         - applinks:call.element.io
         - applinks:call.element.dev
         - applinks:matrix.to
+        - applinks:clarivahub.com
         # - applinks:localhost?mode=developer # developer mode only works with https (but self-signed is fine).
         - webcredentials:*.element.io
         com.apple.developer.usernotifications.communication: true
@@ -245,6 +258,7 @@ targets:
     - package: PostHog
     - package: SwiftState
     - package: GZIP
+    - package: GoogleSignIn
     - package: Sentry
       products: 
         - Sentry

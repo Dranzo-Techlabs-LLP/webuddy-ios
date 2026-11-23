@@ -22,6 +22,10 @@ class NotificationHandler {
     // periphery:ignore - required for instance retention in the rust codebase
     private var roomInfoObservationToken: TaskHandle?
     
+    /// Clariva (F12): "Incoming voice call" / "Incoming video call" for a ring shown as a plain
+    /// notification, when the call type is known.
+    private var callNotificationBodyOverride: String?
+    
     init(userSession: NSEUserSession,
          settings: CommonSettingsProtocol,
          contentHandler: @escaping (UNNotificationContent) -> Void,
@@ -60,6 +64,10 @@ class NotificationHandler {
             await notificationContentBuilder.process(notificationContent: &notificationContent,
                                                      notificationItem: notificationItemProxy,
                                                      mediaProvider: userSession.mediaProvider)
+            
+            if let callNotificationBodyOverride {
+                notificationContent.body = callNotificationBodyOverride
+            }
             
             deliverNotification()
         }
@@ -178,6 +186,12 @@ class NotificationHandler {
             return .shouldDisplay
         }
         
+        // Clariva (Android f825b91c6d): the Matrix ring carries no media type, so resolve the caller's
+        // voice/video choice from the Wallet API (bounded to 2 s) while checking the room's call below.
+        let callTypeTask = Task {
+            await WalletAPIClient().fetchRoomCallType(roomId: roomID)
+        }
+        
         // Check to see if a call is still ongoing
         if let room = userSession.roomForIdentifier(roomID) { // Try to get call details from the room info
             if !room.hasActiveRoomCall() { // If I don't have an active call wait a bit and make sure
@@ -198,7 +212,7 @@ class NotificationHandler {
                 
                 guard room.hasActiveRoomCall() else {
                     MXLog.info("The room no longer has an ongoing call, handling as push notification")
-                    return .shouldDisplay
+                    return await displayCallNotification(callType: callTypeTask.value)
                 }
             }
         } else { // Otherwise fallback to the old timeout mechanism
@@ -206,25 +220,44 @@ class NotificationHandler {
             
             guard abs(timestamp.timeIntervalSinceNow) < ElementCallServiceNotificationDiscardDelta else {
                 MXLog.info("Call notification is too old, handling as push notification")
-                return .shouldDisplay
+                return await displayCallNotification(callType: callTypeTask.value)
             }
         }
         
+        let callType = await callTypeTask.value
+        MXLog.info("Call type for room \(roomID): \(callType ?? "unknown")")
+        
         let expirationDate = Date(timeIntervalSince1970: TimeInterval(expirationTimestamp / 1000))
-        let payload = [ElementCallServiceNotificationKey.roomID.rawValue: roomID,
+        var payload = [ElementCallServiceNotificationKey.roomID.rawValue: roomID,
                        ElementCallServiceNotificationKey.roomDisplayName.rawValue: roomDisplayName,
                        ElementCallServiceNotificationKey.expirationDate.rawValue: expirationDate,
                        ElementCallServiceNotificationKey.rtcNotifyEventID.rawValue: rtcNotifyEventID] as [String: Any]
+        
+        // Left out when unknown, so that the app rings as voice and looks the type up again.
+        if callType == "video" || callType == "voice" {
+            payload[ElementCallServiceNotificationKey.isVideo.rawValue] = callType == "video"
+        }
         
         do {
             try await CXProvider.reportNewIncomingVoIPPushPayload(payload)
             MXLog.info("Call notification delegated to CallKit")
         } catch {
             MXLog.error("Failed reporting voip call with error: \(error). Handling as push notification")
-            return .shouldDisplay
+            return displayCallNotification(callType: callType)
         }
         
         return .processedShouldDiscard
+    }
+    
+    /// Shows the ring as a plain notification, naming the call type when it's known.
+    private func displayCallNotification(callType: String?) -> NotificationProcessingResult {
+        if callType == "video" {
+            callNotificationBodyOverride = "Incoming video call"
+        } else if callType == "voice" {
+            callNotificationBodyOverride = "Incoming voice call"
+        }
+        
+        return .shouldDisplay
     }
     
     private enum NotificationProcessingResult {

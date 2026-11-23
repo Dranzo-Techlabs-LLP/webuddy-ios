@@ -84,10 +84,14 @@ enum RoomListFilter: Int, CaseIterable, Identifiable {
 struct RoomListFiltersState {
     private(set) var activeFilters: OrderedSet<RoomListFilter>
     private let appSettings: AppSettings
+    /// Clariva (Android ee053dc156): the "Rooms" chip only exists while group rooms are enabled. The
+    /// enum case stays, because exhaustive switches elsewhere still refer to it.
+    private let areGroupRoomsEnabled: Bool
     
-    init(activeFilters: OrderedSet<RoomListFilter> = [], appSettings: AppSettings) {
+    init(activeFilters: OrderedSet<RoomListFilter> = [], appSettings: AppSettings, areGroupRoomsEnabled: Bool = ClarivaConfig.groupRoomsEnabled) {
         self.activeFilters = .init(activeFilters)
         self.appSettings = appSettings
+        self.areGroupRoomsEnabled = areGroupRoomsEnabled
     }
     
     var availableFilters: [RoomListFilter] {
@@ -95,6 +99,10 @@ struct RoomListFiltersState {
         
         if !appSettings.lowPriorityFilterEnabled {
             availableFilters.remove(.lowPriority)
+        }
+        
+        if !areGroupRoomsEnabled {
+            availableFilters.remove(.rooms)
         }
         
         for filter in activeFilters {
@@ -110,6 +118,10 @@ struct RoomListFiltersState {
     }
     
     mutating func activateFilter(_ filter: RoomListFilter) {
+        if filter == .rooms, !areGroupRoomsEnabled {
+            return
+        }
+        
         filter.incompatibleFilters.forEach { incompatibleFilter in
             if activeFilters.contains(incompatibleFilter) {
                 fatalError("[RoomListFiltersState] adding mutually exclusive filters is not allowed")

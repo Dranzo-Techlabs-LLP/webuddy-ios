@@ -13,7 +13,7 @@ import SwiftUI
 struct HomeScreenRoomCell: View {
     @Environment(\.dynamicTypeSize) var dynamicTypeSize
     @Environment(\.redactionReasons) private var redactionReasons
-    @ObservedObject private var wallet: WalletService = ServiceLocator.shared.wallet
+    @ObservedObject private var wallet: WalletService = ServiceLocator.shared.wallet ?? .offline
 
     let room: HomeScreenRoom
     let isSelected: Bool
@@ -21,6 +21,12 @@ struct HomeScreenRoomCell: View {
     let action: (HomeScreenViewAction) -> Void
 
     @State private var partnerCredits: Int?
+    /// The DM partner's designation when they are a consultant ("Consultant" by default).
+    @State private var designationBadge: String?
+    
+    private var profiles: ClarivaProfileService {
+        ServiceLocator.shared.clarivaProfile ?? .offline
+    }
     
     private let verticalInsets = 12.0
     private let horizontalInsets = 16.0
@@ -89,14 +95,22 @@ struct HomeScreenRoomCell: View {
     @ViewBuilder
     private var header: some View {
         HStack(alignment: .top, spacing: 16) {
-            HStack(alignment: .center, spacing: 8) {
+            HStack(alignment: .center, spacing: 6) {
+                // The name gives way first, so badges beside it stay readable.
                 Text(room.name)
                     .font(.compound.bodyLGSemibold)
                     .foregroundColor(.compound.textPrimary)
                     .lineLimit(1)
+                
+                if let designationBadge {
+                    DesignationBadge(text: designationBadge, maxWidth: 120)
+                        .layoutPriority(1)
+                }
 
                 if hasPendingRefundRequest {
                     refundRequestedBadge
+                        .padding(.leading, 2)
+                        .layoutPriority(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -114,7 +128,7 @@ struct HomeScreenRoomCell: View {
                 // where the peer is the same role). The rate-or-nil decision is centralised in
                 // WalletService.getRecipientChatRate so the gating is consistent app-wide.
                 if let credits = partnerCredits {
-                    Text("\(credits) credits")
+                    Text(verbatim: "\(credits) credits")
                         .font(.compound.bodySMSemibold)
                         .foregroundColor(.compound.textSecondary)
                 }
@@ -123,9 +137,23 @@ struct HomeScreenRoomCell: View {
         .task(id: room.heroUserID) {
             guard let hero = room.heroUserID else {
                 partnerCredits = nil
+                designationBadge = nil
                 return
             }
-            partnerCredits = await wallet.getRecipientChatRate(userId: hero)
+            // Seeded from the cache so a known badge is there at first paint.
+            let wallet = wallet
+            let profiles = profiles
+            designationBadge = profiles.cachedDesignationBadge(userID: hero)
+            async let rate = wallet.getRecipientChatRate(userId: hero)
+            async let badge = profiles.designationBadge(userID: hero)
+            let (rateResult, badgeResult) = await (rate, badge)
+            guard !Task.isCancelled else { return }
+            partnerCredits = rateResult
+            designationBadge = badgeResult
+        }
+        .onReceive(profiles.profileDidChange.filter { $0 == room.heroUserID }) { userID in
+            // E.g. the partner's chat was opened and their designation re-read.
+            designationBadge = profiles.cachedDesignationBadge(userID: userID)
         }
     }
 

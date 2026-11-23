@@ -198,71 +198,18 @@ class HomeScreenViewModelTests: XCTestCase {
         XCTAssertFalse(context.viewState.shouldShowEmptyFilterState)
     }
     
-    func testSetUpRecoveryBannerState() async throws {
-        // Given a view model without a visible security banner.
+    /// Clariva (Android 015e5d3504): key storage is unlocked automatically at sign-in, and the upstream
+    /// "Set up recovery" / "Recovery out of sync" prompts would replace it, so they are never shown.
+    func testRecoveryBannersAreNeverShown() async throws {
         let securityStateStateSubject = CurrentValueSubject<SessionSecurityState, Never>(.init(verificationState: .verified, recoveryState: .unknown))
         setupViewModel(securityStatePublisher: securityStateStateSubject.asCurrentValuePublisher())
         XCTAssertEqual(context.viewState.securityBannerMode, .none)
         
-        // When the recovery state comes through as disabled.
-        var deferred = deferFulfillment(context.$viewState) { $0.requiresExtraAccountSetup == true }
-        securityStateStateSubject.send(.init(verificationState: .verified, recoveryState: .disabled))
-        try await deferred.fulfill()
-        
-        // Then the banner should be shown to set up recovery.
-        XCTAssertEqual(context.viewState.securityBannerMode, .show(.setUpRecovery))
-        
-        // When the recovery is enabled.
-        deferred = deferFulfillment(context.$viewState) { $0.requiresExtraAccountSetup == false }
-        securityStateStateSubject.send(.init(verificationState: .verified, recoveryState: .enabled))
-        try await deferred.fulfill()
-        
-        // Then the banner should no longer be shown.
-        XCTAssertEqual(context.viewState.securityBannerMode, .none)
-    }
-    
-    func testDismissSetUpRecoveryBannerState() async throws {
-        // Given a view model with the setup recovery banner shown.
-        let securityStateStateSubject = CurrentValueSubject<SessionSecurityState, Never>(.init(verificationState: .verified, recoveryState: .unknown))
-        setupViewModel(securityStatePublisher: securityStateStateSubject.asCurrentValuePublisher())
-        var deferred = deferFulfillment(context.$viewState) { $0.securityBannerMode == .show(.setUpRecovery) }
-        securityStateStateSubject.send(.init(verificationState: .verified, recoveryState: .disabled))
-        try await deferred.fulfill()
-        
-        // When the banner is dismissed.
-        deferred = deferFulfillment(context.$viewState) { $0.securityBannerMode == .dismissed }
-        context.send(viewAction: .skipRecoveryKeyConfirmation)
-        
-        // Then the banner should no longer be shown.
-        try await deferred.fulfill()
-        
-        // And when the recovery state comes through a second time the banner should still not be shown.
-        let failure = deferFailure(context.$viewState, timeout: 1) { $0.securityBannerMode != .dismissed }
-        securityStateStateSubject.send(.init(verificationState: .verified, recoveryState: .disabled))
-        try await failure.fulfill()
-    }
-    
-    func testOutOfSyncRecoveryBannerState() async throws {
-        // Given a view model without a visible security banner.
-        let securityStateStateSubject = CurrentValueSubject<SessionSecurityState, Never>(.init(verificationState: .verified, recoveryState: .unknown))
-        setupViewModel(securityStatePublisher: securityStateStateSubject.asCurrentValuePublisher())
-        XCTAssertEqual(context.viewState.securityBannerMode, .none)
-        
-        // When the recovery state comes through as incomplete.
-        var deferred = deferFulfillment(context.$viewState) { $0.requiresExtraAccountSetup == true }
-        securityStateStateSubject.send(.init(verificationState: .verified, recoveryState: .incomplete))
-        try await deferred.fulfill()
-        
-        // Then the banner should be shown for out of sync recovery.
-        XCTAssertEqual(context.viewState.securityBannerMode, .show(.recoveryOutOfSync))
-        
-        // When the recovery is enabled.
-        deferred = deferFulfillment(context.$viewState) { $0.requiresExtraAccountSetup == false }
-        securityStateStateSubject.send(.init(verificationState: .verified, recoveryState: .enabled))
-        try await deferred.fulfill()
-        
-        // Then the banner should no longer be shown.
-        XCTAssertEqual(context.viewState.securityBannerMode, .none)
+        for recoveryState in [SecureBackupRecoveryState.disabled, .incomplete, .enabled] {
+            let failure = deferFailure(context.$viewState, timeout: 1) { $0.securityBannerMode != .none || $0.requiresExtraAccountSetup }
+            securityStateStateSubject.send(.init(verificationState: .verified, recoveryState: recoveryState))
+            try await failure.fulfill()
+        }
     }
     
     func testInviteUnreadBadge() async throws {

@@ -44,6 +44,16 @@ enum SecureBackupControllerError: Error {
     case failedConfirmingRecoveryKey
         
     case failedUploadingForBackup
+    
+    // MARK: Clariva passphrase-based key storage
+    
+    /// A key backup already exists on the server (e.g. one created before secret storage existed),
+    /// so recovery can't be enabled until it has been disabled.
+    case backupExistsOnServer
+    /// Secret storage exists but can't be opened with the supplied passphrase (it was created without one).
+    case secretStorageNotOpenable
+    case failedEnablingRecovery
+    case failedRecovering
 }
 
 // sourcery: AutoMockable
@@ -57,6 +67,12 @@ protocol SecureBackupControllerProtocol {
     
     func generateRecoveryKey() async -> Result<String, SecureBackupControllerError>
     func confirmRecoveryKey(_ key: String) async -> Result<Void, SecureBackupControllerError>
+    
+    /// Clariva: creates secret storage + key backup locked with the server-provided passphrase (first device).
+    func enableRecovery(passphrase: String) async -> Result<Void, SecureBackupControllerError>
+    /// Clariva: opens existing secret storage with the server-provided passphrase (later devices).
+    /// Import errors are ignored (they surface through the "key storage out of sync" detection).
+    func recover(passphrase: String) async -> Result<Void, SecureBackupControllerError>
     
     func waitForKeyBackupUpload(uploadStateSubject: CurrentValueSubject<SecureBackupSteadyState, Never>) async -> Result<Void, SecureBackupControllerError>
 }

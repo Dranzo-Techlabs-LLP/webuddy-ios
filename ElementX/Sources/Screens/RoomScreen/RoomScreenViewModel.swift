@@ -27,6 +27,10 @@ class RoomScreenViewModel: RoomScreenViewModelType, RoomScreenViewModelProtocol 
     private var identityPinningViolations = [String: RoomMemberProxyProtocol]()
     private var identityVerificationViolations = [String: RoomMemberProxyProtocol]()
     
+    /// Clariva DM header status (designation badge, presence) and the consultant ↔ consultant rule.
+    /// nil in previews and unit tests, where no profile service is registered.
+    private let peerStatusController: DMPeerStatusController?
+    
     private let actionsSubject: PassthroughSubject<RoomScreenViewModelAction, Never> = .init()
     var actions: AnyPublisher<RoomScreenViewModelAction, Never> {
         actionsSubject.eraseToAnyPublisher()
@@ -57,7 +61,8 @@ class RoomScreenViewModel: RoomScreenViewModelType, RoomScreenViewModelProtocol 
          appSettings: AppSettings,
          appHooks: AppHooks,
          analyticsService: AnalyticsService,
-         userIndicatorController: UserIndicatorControllerProtocol) {
+         userIndicatorController: UserIndicatorControllerProtocol,
+         chatGateStatePublisher: CurrentValuePublisher<ChatGateState, Never>? = nil) {
         clientProxy = userSession.clientProxy
         self.roomProxy = roomProxy
         self.appSettings = appSettings
@@ -66,6 +71,11 @@ class RoomScreenViewModel: RoomScreenViewModelType, RoomScreenViewModelProtocol 
         
         self.initialSelectedPinnedEventID = initialSelectedPinnedEventID
         pinnedEventStringBuilder = .pinnedEventStringBuilder(userID: roomProxy.ownUserID)
+        if let profiles = ServiceLocator.shared.clarivaProfile {
+            peerStatusController = DMPeerStatusController(ownUserID: roomProxy.ownUserID, profiles: profiles, appSettings: appSettings)
+        } else {
+            peerStatusController = nil
+        }
 
         let viewState = RoomScreenViewState(roomTitle: roomProxy.infoPublisher.value.displayName ?? roomProxy.id,
                                             roomAvatar: roomProxy.infoPublisher.value.avatar,
@@ -76,16 +86,11 @@ class RoomScreenViewModel: RoomScreenViewModelType, RoomScreenViewModelProtocol 
         
         updateRoomInfo(roomProxy.infoPublisher.value)
         setupSubscriptions(ongoingCallRoomIDPublisher: ongoingCallRoomIDPublisher)
+        setupWalletSubscriptions(chatGateStatePublisher: chatGateStatePublisher)
+        setupPeerStatusSubscriptions()
 
         Task {
             await updateVerificationBadge()
-        }
-
-        // Refund / pending-hold status loop: poll the server every 15s while the room is open,
-        // mirror Android MessagesPresenter LaunchedEffect. Drives banner visibility, button
-        // gating, and the auto-approval push-notification claim flow. Cancelled in deinit.
-        refundPollTask = Task { [weak self] in
-            await self?.runRefundPollLoop()
         }
     }
 
@@ -93,11 +98,25 @@ class RoomScreenViewModel: RoomScreenViewModelType, RoomScreenViewModelProtocol 
         refundPollTask?.cancel()
     }
 
+    /// The 15 s pending-hold status loop (Android `MessagesPresenter` LaunchedEffect). Restarted
+    /// whenever the DM partner changes and cancelled in `stop()`.
     private var refundPollTask: Task<Void, Never>?
-    /// Local dedupe of refund-request ids we've already reacted to during this session.
+    /// Local dedupe of the auto-approval notices already claimed (or tried) during this session.
     /// Mirrors Android `notifiedRefundRequestIds` — keeps us from pounding the
     /// auto-approval claim endpoint on every 15s tick.
     private var notifiedRefundRequestIds: Set<String> = []
+    /// Fetches the recorded call type whenever a call becomes ongoing (Join icon).
+    private var ongoingCallTypeTask: Task<Void, Never>?
+    private var lastKnownHasRoomCall = false
+    /// Guards the chooser while the call type is being recorded (≤ 2 s).
+    private var isStartingCall = false
+    /// Set by `stop()`; the refund poll is never restarted afterwards.
+    private var isStopped = false
+    
+    /// nil in previews and unit tests, where no wallet is registered.
+    private var wallet: WalletService? {
+        ServiceLocator.shared.wallet
+    }
 
     override func process(viewAction: RoomScreenViewAction) {
         switch viewAction {
@@ -109,9 +128,14 @@ class RoomScreenViewModel: RoomScreenViewModelType, RoomScreenViewModelProtocol 
         case .displayRoomDetails:
             actionsSubject.send(.displayRoomDetails)
         case .displayCall:
+            // Join an ongoing call, or start one directly in a non-DM room: no media choice is
+            // recorded (the call screen resolves Join from the server record).
+            CallBillingWatcher.shared.arm(roomProxy: roomProxy)
             actionsSubject.send(.displayCall)
             actionsSubject.send(.removeComposerFocus)
             analyticsService.trackInteraction(name: .MobileRoomCallButton)
+        case .startCall(let isVoice):
+            startCall(isVoice: isVoice)
         case .footerViewAction(let action):
             switch action {
             case .resolvePinViolation(let userID):
@@ -132,74 +156,164 @@ class RoomScreenViewModel: RoomScreenViewModelType, RoomScreenViewModelProtocol 
             guard let successorID = roomProxy.infoPublisher.value.successor?.roomId else { return }
             let serverNames = roomProxy.knownServerNames(maxCount: 50) // Limit to the same number used by ClientProxy.resolveRoomAlias(_:)
             actionsSubject.send(.displayRoom(roomID: successorID, via: Array(serverNames)))
-        case .requestRefund:
-            handleRequestRefund()
-        case .approveRefund:
-            handleApproveRefund()
-        case .rejectRefund:
-            handleRejectRefund()
+        case .requestRefundTapped:
+            guard !state.isRefundRequestInProgress else { return }
+            state.bindings.alertInfo = AlertInfo(id: .requestRefund,
+                                                 title: "Request Refund",
+                                                 message: "Are you sure you want to request a refund?",
+                                                 primaryButton: .init(title: "Cancel", role: .cancel, action: nil),
+                                                 secondaryButton: .init(title: "Request") { [weak self] in
+                                                     self?.handleRequestRefund()
+                                                 })
+        case .approveRefundTapped:
+            guard !state.isRefundRequestInProgress else { return }
+            state.bindings.approveRefundSheet = ApproveRefundSheetModel(heldAmount: state.refundHeldAmount)
+        case .approveRefund(let amount):
+            state.bindings.approveRefundSheet = nil
+            handleApproveRefund(amount: amount)
+        case .rejectRefundTapped:
+            guard !state.isRefundRequestInProgress else { return }
+            state.bindings.alertInfo = AlertInfo(id: .rejectRefund,
+                                                 title: "Reject Refund",
+                                                 message: "The held amount will transfer to your wallet at the end of the hold window.",
+                                                 primaryButton: .init(title: "Cancel", role: .cancel, action: nil),
+                                                 secondaryButton: .init(title: "Reject") { [weak self] in
+                                                     self?.handleRejectRefund()
+                                                 })
         case .clearRefundSnackbar:
             state.refundSnackbar = nil
         }
     }
+    
+    // MARK: - Calls
+    
+    /// DM chooser choice. Records the type server-side first (≤ 2 s, like Android) so the receiver
+    /// rings as voice/video, then hands the choice to the call screen and starts the call.
+    private func startCall(isVoice: Bool) {
+        guard !isStartingCall else { return }
+        isStartingCall = true
+        
+        actionsSubject.send(.removeComposerFocus)
+        analyticsService.trackInteraction(name: .MobileRoomCallButton)
+        CallBillingWatcher.shared.arm(roomProxy: roomProxy)
+        
+        let roomID = roomProxy.id
+        let ownUserID = roomProxy.ownUserID
+        let wallet = self.wallet
+        Task { [weak self] in
+            await wallet?.setRoomCallType(roomId: roomID, isVideo: !isVoice, callerId: ownUserID)
+            
+            guard let self else { return }
+            isStartingCall = false
+            // Set right before presenting so an abandoned start never leaves a stale choice behind.
+            CallMediaChoiceStore.shared.setStartWithVideoMuted(isVoice, for: roomID)
+            actionsSubject.send(.displayCall)
+        }
+    }
+    
+    /// Android `LaunchedEffect(hasOngoingCall)`: re-read the recorded type each time a call
+    /// becomes ongoing. Unknown → voice icon.
+    private func refreshOngoingCallType() {
+        guard let wallet else { return }
+        
+        let roomID = roomProxy.id
+        ongoingCallTypeTask?.cancel()
+        ongoingCallTypeTask = Task { [weak self] in
+            let callType = await wallet.getRoomCallType(roomId: roomID)
+            guard !Task.isCancelled else { return }
+            self?.state.ongoingCallIsVideo = callType == "video"
+        }
+    }
+    
+    // MARK: - New session warning
+    
+    func presentNewSessionWarning(onContinue: @escaping (_ neverRemindAgain: Bool) -> Void) {
+        state.bindings.alertInfo = AlertInfo(id: .newSessionWarning,
+                                             title: "Start a new session?",
+                                             message: "Your previous session has ended. Sending this message starts a new billable session and places a fresh hold on your credits.",
+                                             primaryButton: .init(title: "Cancel", role: .cancel, action: nil),
+                                             verticalButtons: [
+                                                 .init(title: "Continue") { onContinue(false) },
+                                                 .init(title: "Never remind me again for this consultant") { onContinue(true) }
+                                             ])
+    }
 
     // MARK: - Refund
 
-    /// Hardcoded mirror of Android `screen_messages_refund_*` resources (which are
-    /// `translatable="false"`). Body text shown both in the chat history audit row AND on
-    /// the lockscreen push preview, so emoji-prefixed for scannability.
-    private static let refundRequestNotificationBody = "🔔 Refund requested for the held credits"
-    private static let refundApprovedNotificationBody = "✅ Your refund was approved — credits returned to your wallet"
-    private static let refundRejectedNotificationBody = "❌ Your refund was rejected by the consultant"
-    private static let refundAutoApprovedNotificationBody = "⚙️ Refund auto-approved after 24h with no response — credits returned to the client"
+    /// Exact mirror of Android's `do_not_translate.xml` refund bodies (165e2616fd removed the emoji).
+    /// Plain `m.text` bodies: shown in the chat history and as the push preview.
+    private static let refundRequestNotificationBody = "Refund requested for the held credits"
+    private static let refundApprovedNotificationBody = "Your refund was approved — credits returned to your wallet"
+    private static let refundRejectedNotificationBody = "Your refund was rejected by the consultant"
+    private static let refundAutoApprovedNotificationBody = "Refund auto-approved after 24h with no response — credits returned to the client"
+    
+    /// Partial approval body: the amount actually returned to the client.
+    private static func refundPartiallyApprovedNotificationBody(amount: Double) -> String {
+        "Your refund was approved — \(RefundAmountFormatter.format(amount)) credits returned to your wallet"
+    }
+    
+    private static let refundPollInterval: Duration = .seconds(15)
 
-    /// 15s poll mirroring Android MessagesPresenter LaunchedEffect.
-    private func runRefundPollLoop() async {
-        while !Task.isCancelled {
-            await pollPendingHoldStatusOnce()
-            try? await Task.sleep(nanoseconds: 15 * 1_000_000_000)
+    /// (Re)starts the 15 s poll for the current DM partner, polling immediately. Called whenever the
+    /// partner changes, so a partner that resolves after the room opened is picked up right away.
+    private func restartRefundPolling(partnerID: String?) {
+        refundPollTask?.cancel()
+        refundPollTask = nil
+
+        // A member update after `stop()` must not resurrect the poll on a dismissed room.
+        guard !isStopped else { return }
+
+        guard let partnerID, wallet != nil else {
+            clearRefundState()
+            return
         }
+        
+        refundPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                // Only hold `self` for the poll itself, never across the sleep, so the loop can't
+                // keep a dismissed room alive.
+                do {
+                    guard let self else { return }
+                    await self.pollPendingHoldStatusOnce(partnerID: partnerID)
+                }
+                try? await Task.sleep(for: Self.refundPollInterval)
+            }
+        }
+    }
+    
+    private func clearRefundState() {
+        state.isRefundButtonVisible = false
+        state.refundStatus = nil
+        state.refundPendingHoldId = nil
+        state.refundRequestId = nil
+        state.refundHeldAmount = nil
     }
 
     private func partnerUserID() -> String? {
-        guard roomProxy.isDirectOneToOneRoom else { return nil }
-        let myID = roomProxy.ownUserID
-        return roomProxy.membersPublisher.value.first { $0.userID != myID }?.userID
+        roomProxy.walletPartnerUserID
     }
 
-    private func pollPendingHoldStatusOnce() async {
-        guard roomProxy.isDirectOneToOneRoom, let partnerId = partnerUserID() else {
-            await MainActor.run {
-                state.isRefundButtonVisible = false
-                state.refundStatus = nil
-                state.refundPendingHoldId = nil
-                state.refundRequestId = nil
-            }
-            return
-        }
+    private func pollPendingHoldStatusOnce(partnerID: String) async {
+        guard let wallet else { return }
         let myUserId = roomProxy.ownUserID
-        let wallet: WalletService = ServiceLocator.shared.wallet
-        guard let status = await wallet.getPendingHoldStatus(clientId: myUserId, consultantId: partnerId) else {
+        // Errors leave the state untouched (Android `catch: log`).
+        guard let status = await wallet.getPendingHoldStatus(clientId: myUserId, consultantId: partnerID),
+              !Task.isCancelled else {
             return
         }
         // Server bidirectional lookup: my role is determined by whether the hold's consultantId == me.
         let amConsultant = status.consultantId != nil && status.consultantId == myUserId
-        await MainActor.run {
-            state.isConsultantInThisRoom = amConsultant
-            if status.exists && (status.isRefundActive ?? 1) == 1 {
-                state.refundStatus = status.refundStatus
-                state.refundPendingHoldId = status.holdIdString
-                state.refundRequestId = status.refundRequestIdString
-                state.isRefundButtonVisible = true
-                if amConsultant, status.refundStatus == "requested", let reqId = status.refundRequestIdString {
-                    notifiedRefundRequestIds.insert(reqId)
-                }
-            } else {
-                state.isRefundButtonVisible = false
-                state.refundStatus = nil
-                state.refundPendingHoldId = nil
-                state.refundRequestId = nil
-            }
+        state.isConsultantInThisRoom = amConsultant
+        if status.exists, status.isRefundActive == 1 {
+            state.refundStatus = status.refundStatus
+            state.refundPendingHoldId = status.holdIdString
+            state.refundRequestId = status.refundRequestIdString
+            state.refundHeldAmount = status.amount
+            state.isRefundButtonVisible = true
+            // Android also records "requested" ids here, but they are the same ids as the auto-approval
+            // notices below, so a consultant who saw the request would never announce its auto-approval.
+        } else {
+            clearRefundState()
         }
         // Auto-approval push-notification pickup. First app to observe the
         // pendingAutoApprovalNotification + win the atomic claim posts the in-room
@@ -207,16 +321,13 @@ class RoomScreenViewModel: RoomScreenViewModelType, RoomScreenViewModelProtocol 
         // standard homeserver → Sygnal → APNs pipeline. Best-effort: claim or send
         // failure does NOT roll back the refund — credits are already returned.
         if let pending = status.pendingAutoApprovalNotification {
-            let idString = String(pending.refundRequestId)
+            let idString = pending.refundRequestId
             if !notifiedRefundRequestIds.contains(idString) {
                 notifiedRefundRequestIds.insert(idString)
-                let claimed = await wallet.claimAutoApprovalNotification(refundRequestId: pending.refundRequestId,
+                let claimed = await wallet.claimAutoApprovalNotification(refundRequestId: idString,
                                                                           callerUserId: myUserId)
                 if claimed {
-                    _ = await roomProxy.timeline.sendMessage(Self.refundAutoApprovedNotificationBody,
-                                                             html: nil,
-                                                             inReplyToEventID: nil,
-                                                             intentionalMentions: .empty)
+                    await sendRefundNotification(Self.refundAutoApprovedNotificationBody)
                     MXLog.info("[Refund] Posted auto-approval Matrix message for refund \(idString)")
                 } else {
                     MXLog.info("[Refund] Auto-approval claim lost for refund \(idString) (other side announced)")
@@ -224,98 +335,98 @@ class RoomScreenViewModel: RoomScreenViewModelType, RoomScreenViewModelProtocol 
             }
         }
     }
+    
+    /// Plain-text push message on the live timeline. It bypasses the composer, so it never starts a
+    /// hold. Failures are logged and never roll anything back.
+    private func sendRefundNotification(_ body: String) async {
+        if case .failure(let error) = await roomProxy.timeline.sendMessage(body,
+                                                                         html: nil,
+                                                                         inReplyToEventID: nil,
+                                                                         intentionalMentions: .empty) {
+            MXLog.error("[Refund] Failed sending refund message: \(error)")
+        }
+    }
 
     private func handleRequestRefund() {
         if state.isRefundRequestInProgress { return }
-        guard let holdId = state.refundPendingHoldId, let partnerId = partnerUserID() else {
+        guard let wallet, let holdId = state.refundPendingHoldId, let partnerId = partnerUserID() else {
             MXLog.warning("[Refund] Cannot request refund: holdId=\(state.refundPendingHoldId ?? "nil"), partner=\(partnerUserID() ?? "nil")")
             return
         }
         state.isRefundRequestInProgress = true
         let myId = roomProxy.ownUserID
         Task { [weak self] in
-            guard let self else { return }
-            let wallet: WalletService = ServiceLocator.shared.wallet
             let result = await wallet.requestRefund(clientId: myId, consultantId: partnerId, pendingHoldId: holdId)
+            guard let self else { return }
             switch result {
             case .success:
-                await MainActor.run {
-                    self.state.refundStatus = "requested"
-                    self.state.refundSnackbar = "Refund request sent"
-                }
-                _ = await self.roomProxy.timeline.sendMessage(Self.refundRequestNotificationBody,
-                                                              html: nil,
-                                                              inReplyToEventID: nil,
-                                                              intentionalMentions: .empty)
+                state.refundStatus = "requested"
+                state.refundSnackbar = "Refund request sent"
+                await sendRefundNotification(Self.refundRequestNotificationBody)
             case .failure(let error):
                 MXLog.error("[Refund] requestRefund failed: \(error)")
-                await MainActor.run { self.state.refundSnackbar = L10n.commonError }
+                state.refundSnackbar = L10n.commonError
             }
-            await MainActor.run { self.state.isRefundRequestInProgress = false }
+            state.isRefundRequestInProgress = false
         }
     }
 
-    private func handleApproveRefund() {
+    /// `amount == nil` ⇒ full refund.
+    private func handleApproveRefund(amount: Double?) {
         if state.isRefundRequestInProgress { return }
-        guard let reqId = state.refundRequestId, let holdId = state.refundPendingHoldId else {
+        guard let wallet, let reqId = state.refundRequestId, let holdId = state.refundPendingHoldId else {
             MXLog.warning("[Refund] Cannot approve: reqId=\(state.refundRequestId ?? "nil") holdId=\(state.refundPendingHoldId ?? "nil")")
             return
         }
         state.isRefundRequestInProgress = true
         let myId = roomProxy.ownUserID
         Task { [weak self] in
+            let result = await wallet.approveRefund(refundRequestId: reqId, pendingHoldId: holdId, refundAmount: amount)
             guard let self else { return }
-            let wallet: WalletService = ServiceLocator.shared.wallet
-            let result = await wallet.approveRefund(refundRequestId: reqId, pendingHoldId: holdId)
             switch result {
-            case .success:
-                await MainActor.run {
-                    self.state.refundStatus = "approved"
-                    self.state.isRefundButtonVisible = false
-                    self.state.refundSnackbar = "Refund approved"
-                }
+            case .success(let response):
+                state.refundStatus = "approved"
+                state.isRefundButtonVisible = false
+                state.refundSnackbar = "Refund approved"
                 // Drop the chat-list pending-refund badge for this client. Mirrors Android.
                 await wallet.refreshPendingRefundRequests(consultantUserId: myId)
-                _ = await self.roomProxy.timeline.sendMessage(Self.refundApprovedNotificationBody,
-                                                              html: nil,
-                                                              inReplyToEventID: nil,
-                                                              intentionalMentions: .empty)
+                // The amount actually returned, falling back to the requested partial amount.
+                let returnedAmount = response.amount ?? amount
+                if amount != nil, let returnedAmount {
+                    await sendRefundNotification(Self.refundPartiallyApprovedNotificationBody(amount: returnedAmount))
+                } else {
+                    await sendRefundNotification(Self.refundApprovedNotificationBody)
+                }
             case .failure(let error):
                 MXLog.error("[Refund] approveRefund failed: \(error)")
-                await MainActor.run { self.state.refundSnackbar = L10n.commonError }
+                state.refundSnackbar = L10n.commonError
             }
-            await MainActor.run { self.state.isRefundRequestInProgress = false }
+            state.isRefundRequestInProgress = false
         }
     }
 
     private func handleRejectRefund() {
         if state.isRefundRequestInProgress { return }
-        guard let reqId = state.refundRequestId else {
+        guard let wallet, let reqId = state.refundRequestId else {
             MXLog.warning("[Refund] Cannot reject: reqId is nil")
             return
         }
         state.isRefundRequestInProgress = true
         let myId = roomProxy.ownUserID
         Task { [weak self] in
-            guard let self else { return }
-            let wallet: WalletService = ServiceLocator.shared.wallet
             let result = await wallet.rejectRefund(refundRequestId: reqId)
+            guard let self else { return }
             switch result {
             case .success:
-                await MainActor.run {
-                    self.state.refundStatus = "rejected"
-                    self.state.refundSnackbar = "Refund rejected"
-                }
+                state.refundStatus = "rejected"
+                state.refundSnackbar = "Refund rejected"
                 await wallet.refreshPendingRefundRequests(consultantUserId: myId)
-                _ = await self.roomProxy.timeline.sendMessage(Self.refundRejectedNotificationBody,
-                                                              html: nil,
-                                                              inReplyToEventID: nil,
-                                                              intentionalMentions: .empty)
+                await sendRefundNotification(Self.refundRejectedNotificationBody)
             case .failure(let error):
                 MXLog.error("[Refund] rejectRefund failed: \(error)")
-                await MainActor.run { self.state.refundSnackbar = L10n.commonError }
+                state.refundSnackbar = L10n.commonError
             }
-            await MainActor.run { self.state.isRefundRequestInProgress = false }
+            state.isRefundRequestInProgress = false
         }
     }
     
@@ -325,6 +436,13 @@ class RoomScreenViewModel: RoomScreenViewModelType, RoomScreenViewModelProtocol 
         Task { await roomProxy.markAsRead(receiptType: .fullyRead) }
         // Work around QLPreviewController dismissal issues, see the InteractiveQuickLookModifier.
         state.bindings.mediaPreviewViewModel = nil
+        // Stop the refund poll (it must not outlive the room screen) and pending lookups.
+        isStopped = true
+        refundPollTask?.cancel()
+        refundPollTask = nil
+        ongoingCallTypeTask?.cancel()
+        ongoingCallTypeTask = nil
+        peerStatusController?.stop()
     }
     
     func timelineHasScrolled(direction: ScrollDirection) {
@@ -420,6 +538,81 @@ class RoomScreenViewModel: RoomScreenViewModelType, RoomScreenViewModelProtocol 
         NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in
                 self?.roomProxy.timeline.retryDecryption(sessionIDs: nil)
+            }
+            .store(in: &cancellables)
+    }
+    
+    private func setupWalletSubscriptions(chatGateStatePublisher: CurrentValuePublisher<ChatGateState, Never>?) {
+        if let chatGateStatePublisher {
+            // The gate publishes on the main actor; assign synchronously so the instant (cached)
+            // gate is in place for the first paint.
+            state.chatGate = chatGateStatePublisher.value
+            chatGateStatePublisher
+                .removeDuplicates()
+                .weakAssign(to: \.state.chatGate, on: self)
+                .store(in: &cancellables)
+        }
+        
+        // Restart the refund poll whenever the DM partner resolves or changes (Android restarts its
+        // LaunchedEffect keyed on the member), instead of waiting for the next 15 s tick.
+        let ownUserID = roomProxy.ownUserID
+        Publishers.CombineLatest(roomProxy.membersPublisher, roomProxy.infoPublisher)
+            .map { members, roomInfo in
+                WalletPartnerResolver.partnerUserID(roomInfo: roomInfo, members: members, ownUserID: ownUserID)
+            }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] partnerID in
+                self?.restartRefundPolling(partnerID: partnerID)
+            }
+            .store(in: &cancellables)
+    }
+    
+    /// Android ee053dc156: the DM header shows the partner's designation and presence, and a
+    /// consultant ↔ consultant DM is read-only (composer replaced, calls hidden).
+    private func setupPeerStatusSubscriptions() {
+        guard let peerStatusController else { return }
+
+        let ownUserID = roomProxy.ownUserID
+
+        // Seeded synchronously from the caches (the chat list usually looked the partner up already)
+        // so the badge and a read-only composer are there at first paint.
+        let initialPeerID = roomProxy.walletPartnerUserID
+        let isInitialPeerJoined = initialPeerID.map { peerID in roomProxy.membersPublisher.value.contains { $0.userID == peerID && $0.membership == .join } } ?? false
+        peerStatusController.update(peerID: initialPeerID, isPeerJoined: isInitialPeerJoined)
+        let initialStatus = peerStatusController.statusPublisher.value
+        state.dmPeerStatus = initialStatus
+        state.isConsultantPeerBlocked = wallet?.isCurrentUserConsultant == true && initialStatus.isPeerConsultant == true && initialPeerID != nil
+
+        Publishers.CombineLatest(roomProxy.membersPublisher, roomProxy.infoPublisher)
+            .map { members, roomInfo -> DMPeerKey in
+                let peerID = WalletPartnerResolver.partnerUserID(roomInfo: roomInfo, members: members, ownUserID: ownUserID)
+                let isPeerJoined = peerID.map { peerID in members.contains { $0.userID == peerID && $0.membership == .join } } ?? false
+                return DMPeerKey(peerID: peerID, isPeerJoined: isPeerJoined)
+            }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] key in
+                guard let self, !isStopped else { return }
+                peerStatusController.update(peerID: key.peerID, isPeerJoined: key.isPeerJoined)
+            }
+            .store(in: &cancellables)
+        
+        // Consultants may only chat with clients. Both roles must be CONFIRMED to block: an unknown
+        // role fails open, like the wallet gate.
+        let isCurrentUserConsultant = wallet?.$isCurrentUserConsultant.eraseToAnyPublisher() ?? Just<Bool?>(nil).eraseToAnyPublisher()
+        peerStatusController.statusPublisher
+            .combineLatest(isCurrentUserConsultant.removeDuplicates())
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status, isCurrentUserConsultant in
+                guard let self else { return }
+                if state.dmPeerStatus != status {
+                    state.dmPeerStatus = status
+                }
+                let isBlocked = isCurrentUserConsultant == true && status.isPeerConsultant == true && roomProxy.walletPartnerUserID != nil
+                if state.isConsultantPeerBlocked != isBlocked {
+                    state.isConsultantPeerBlocked = isBlocked
+                }
             }
             .store(in: &cancellables)
     }
@@ -525,6 +718,12 @@ class RoomScreenViewModel: RoomScreenViewModelType, RoomScreenViewModelProtocol 
         state.roomAvatar = roomInfo.avatar
         state.hasOngoingCall = roomInfo.hasRoomCall
         state.hasSuccessor = roomInfo.successor != nil
+        state.isDirectOneToOneRoom = roomInfo.isDirect && roomInfo.activeMembersCount <= 2
+        
+        if roomInfo.hasRoomCall, !lastKnownHasRoomCall {
+            refreshOngoingCallType()
+        }
+        lastKnownHasRoomCall = roomInfo.hasRoomCall
         
         let pinnedEventIDs = roomInfo.pinnedEventIDs
         // Only update the loading state of the banner
@@ -654,7 +853,8 @@ class RoomScreenViewModel: RoomScreenViewModelType, RoomScreenViewModelProtocol 
 extension RoomScreenViewModel {
     static func mock(roomProxyMock: JoinedRoomProxyMock,
                      clientProxyMock: ClientProxyMock = ClientProxyMock(.init()),
-                     appHooks: AppHooks = AppHooks()) -> RoomScreenViewModel {
+                     appHooks: AppHooks = AppHooks(),
+                     chatGateState: ChatGateState = ChatGateState()) -> RoomScreenViewModel {
         RoomScreenViewModel(userSession: UserSessionMock(.init(clientProxy: clientProxyMock)),
                             roomProxy: roomProxyMock,
                             initialSelectedPinnedEventID: nil,
@@ -662,8 +862,15 @@ extension RoomScreenViewModel {
                             appSettings: ServiceLocator.shared.settings,
                             appHooks: appHooks,
                             analyticsService: ServiceLocator.shared.analytics,
-                            userIndicatorController: ServiceLocator.shared.userIndicatorController)
+                            userIndicatorController: ServiceLocator.shared.userIndicatorController,
+                            chatGateStatePublisher: CurrentValuePublisher<ChatGateState, Never>(chatGateState))
     }
+}
+
+/// The DM partner and whether they joined (a "contact" for last-seen privacy).
+private struct DMPeerKey: Equatable {
+    let peerID: String?
+    let isPeerJoined: Bool
 }
 
 private extension KnockRequestInfo {

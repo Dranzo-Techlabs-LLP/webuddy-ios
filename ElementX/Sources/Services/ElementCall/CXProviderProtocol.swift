@@ -12,6 +12,7 @@ protocol CXProviderProtocol {
     func setDelegate(_ delegate: CXProviderDelegate?, queue: DispatchQueue?)
     func reportNewIncomingCall(with uuid: UUID, update: CXCallUpdate, completion: @escaping @Sendable (Error?) -> Void)
     func reportCall(with uuid: UUID, endedAt: Date?, reason: CXCallEndedReason)
+    func reportCall(with uuid: UUID, updated update: CXCallUpdate)
 }
 
 extension CXProvider: CXProviderProtocol { }

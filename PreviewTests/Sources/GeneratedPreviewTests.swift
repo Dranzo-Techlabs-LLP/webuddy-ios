@@ -83,6 +83,18 @@ extension PreviewTests {
         }
     }
 
+    func testBankDetailsScreen() async throws {
+        for (index, preview) in BankDetailsScreen_Previews._allPreviews.enumerated() {
+            try await assertSnapshots(matching: preview, step: index)
+        }
+    }
+
+    func testBillingAndPaymentsScreen() async throws {
+        for (index, preview) in BillingAndPaymentsScreen_Previews._allPreviews.enumerated() {
+            try await assertSnapshots(matching: preview, step: index)
+        }
+    }
+
     func testBlockedUsersScreen() async throws {
         for (index, preview) in BlockedUsersScreen_Previews._allPreviews.enumerated() {
             try await assertSnapshots(matching: preview, step: index)
@@ -151,6 +163,12 @@ extension PreviewTests {
 
     func testDeclineAndBlockScreen() async throws {
         for (index, preview) in DeclineAndBlockScreen_Previews._allPreviews.enumerated() {
+            try await assertSnapshots(matching: preview, step: index)
+        }
+    }
+
+    func testDesignationBadge() async throws {
+        for (index, preview) in DesignationBadge_Previews._allPreviews.enumerated() {
             try await assertSnapshots(matching: preview, step: index)
         }
     }
@@ -395,6 +413,12 @@ extension PreviewTests {
         }
     }
 
+    func testLastSeenPrivacyScreen() async throws {
+        for (index, preview) in LastSeenPrivacyScreen_Previews._allPreviews.enumerated() {
+            try await assertSnapshots(matching: preview, step: index)
+        }
+    }
+
     func testLeaveSpaceRoomDetailsCell() async throws {
         for (index, preview) in LeaveSpaceRoomDetailsCell_Previews._allPreviews.enumerated() {
             try await assertSnapshots(matching: preview, step: index)
@@ -511,6 +535,12 @@ extension PreviewTests {
 
     func testMessageText() async throws {
         for (index, preview) in MessageText_Previews._allPreviews.enumerated() {
+            try await assertSnapshots(matching: preview, step: index)
+        }
+    }
+
+    func testMyQRCodeScreen() async throws {
+        for (index, preview) in MyQRCodeScreen_Previews._allPreviews.enumerated() {
             try await assertSnapshots(matching: preview, step: index)
         }
     }
@@ -827,6 +857,12 @@ extension PreviewTests {
         }
     }
 
+    func testRoomScreenHeaderView() async throws {
+        for (index, preview) in RoomScreenHeaderView_Previews._allPreviews.enumerated() {
+            try await assertSnapshots(matching: preview, step: index)
+        }
+    }
+
     func testRoomScreen() async throws {
         for (index, preview) in RoomScreen_Previews._allPreviews.enumerated() {
             try await assertSnapshots(matching: preview, step: index)
@@ -841,6 +877,12 @@ extension PreviewTests {
 
     func testSFNumberedListView() async throws {
         for (index, preview) in SFNumberedListView_Previews._allPreviews.enumerated() {
+            try await assertSnapshots(matching: preview, step: index)
+        }
+    }
+
+    func testScanUserQRCodeScreen() async throws {
+        for (index, preview) in ScanUserQRCodeScreen_Previews._allPreviews.enumerated() {
             try await assertSnapshots(matching: preview, step: index)
         }
     }

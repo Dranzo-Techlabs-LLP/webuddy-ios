@@ -32,6 +32,9 @@ enum SettingsScreenCoordinatorAction {
     case labs
     case developerOptions
     case deactivateAccount
+    case myQRCode
+    case billingAndPayments
+    case lastSeenPrivacy
 }
 
 final class SettingsScreenCoordinator: CoordinatorProtocol {
@@ -88,6 +91,12 @@ final class SettingsScreenCoordinator: CoordinatorProtocol {
                     actionsSubject.send(.logout)
                 case .deactivateAccount:
                     actionsSubject.send(.deactivateAccount)
+                case .myQRCode:
+                    actionsSubject.send(.myQRCode)
+                case .billingAndPayments:
+                    actionsSubject.send(.billingAndPayments)
+                case .lastSeenPrivacy:
+                    actionsSubject.send(.lastSeenPrivacy)
                 }
             }
             .store(in: &cancellables)

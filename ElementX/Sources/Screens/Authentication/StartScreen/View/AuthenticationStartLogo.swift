@@ -18,34 +18,30 @@ struct AuthenticationStartLogo: View {
     /// Extra padding needed to avoid cropping the shadows.
     private let extra: CGFloat = 64
     /// The shape that the logo is composed on top of.
-    private let outerShape = RoundedRectangle(cornerRadius: 44)
+    private let outerShape = RoundedRectangle(cornerRadius: 32)
     private let outerShapeShadowColor = Color(red: 0.11, green: 0.11, blue: 0.13)
     private var isLight: Bool { colorScheme == .light }
     
     var body: some View {
         if hideBrandChrome {
-            Image(asset: Asset.Images.appLogo)
+            logoImage
+                .frame(width: 120, height: 120)
         } else {
             brandLogo
         }
     }
     
-    private var brandLogo: some View {
+    /// Clariva: the mark is a transparent, non-circular 256 pt asset, so it is sized explicitly
+    /// (Android's tile shows it at ~72 pt) and no longer sits on Element's circular shadow disc.
+    private var logoImage: some View {
         Image(asset: Asset.Images.appLogo)
-            .background {
-                Circle()
-                    .inset(by: 1)
-                    .shadow(color: .black.opacity(!isLight ? 0.3 : 0.4),
-                            radius: 12.57143,
-                            y: 6.28571)
-                
-                Circle()
-                    .inset(by: 1)
-                    .shadow(color: .black.opacity(0.5),
-                            radius: 12.57143,
-                            y: 6.28571)
-                    .blendMode(.overlay)
-            }
+            .resizable()
+            .scaledToFit()
+            .frame(width: 72, height: 72)
+    }
+    
+    private var brandLogo: some View {
+        logoImage
             .padding(24)
             .background {
                 Color.white

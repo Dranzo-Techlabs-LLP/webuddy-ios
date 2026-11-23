@@ -16,6 +16,9 @@ enum ElementCallServiceNotificationKey: String {
     case rtcNotifyEventID
     /// The Date at which the incoming call should stop ringing.
     case expirationDate
+    /// Clariva: whether the caller chose a video call (`Bool`), resolved by the NSE from the Wallet
+    /// API call-type record. Missing when the type is unknown, in which case the app looks it up.
+    case isVideo
 }
 
 let ElementCallServiceNotificationDiscardDelta = 15.0

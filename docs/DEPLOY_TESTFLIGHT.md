@@ -11,9 +11,9 @@ End-to-end recipe for building a Webuddy iOS `.ipa` and uploading it to TestFlig
 ### 0.2 App ID + Bundle Identifier
 - In the developer portal, register an App ID under **Certificates, Identifiers & Profiles → Identifiers**:
   - Description: `Webuddy iOS`
-  - Bundle ID: explicit, e.g. `com.dranzo.webuddy`
+  - Bundle ID: explicit, e.g. `com.dranzo.clariva`
   - Capabilities: enable **Push Notifications**, **App Groups**, **Keychain Sharing** (Element X uses these).
-- Register the App Group `group.com.dranzo.webuddy` (must match `APP_GROUP_IDENTIFIER` you'll set in `app.yml`).
+- Register the App Group `group.com.dranzo.clariva` (the script sets `APP_GROUP_IDENTIFIER` in `app.yml` to `group.<bundle id>` for you).
 
 ### 0.3 App Store Connect record
 - <https://appstoreconnect.apple.com/apps> → **+ → New App**.
@@ -39,8 +39,9 @@ The repo's defaults still point at Element's team / bundle. The provided script 
 
 | Field | File | Element default | Webuddy value |
 |---|---|---|---|
-| `BASE_BUNDLE_IDENTIFIER` | `app.yml` | `io.element.elementx` | `com.dranzo.webuddy` |
+| `BASE_BUNDLE_IDENTIFIER` | `app.yml` | `io.element.elementx` | `com.dranzo.clariva` |
 | `DEVELOPMENT_TEAM`       | `app.yml` | `7J4U792NQT` | _your team id_ |
+| `APP_GROUP_IDENTIFIER`   | `app.yml` | `group.io.element` | `group.com.dranzo.clariva` (override with `APP_GROUP_ID`) |
 | `MARKETING_VERSION`      | `project.yml` | `26.01.1` | bump per release |
 | `CURRENT_PROJECT_VERSION`| `project.yml` | `1` | UTC timestamp by default |
 
@@ -51,9 +52,9 @@ The `Tools/Scripts/build_for_testflight.sh` script does this for you when you se
 ```sh
 chmod +x Tools/Scripts/build_for_testflight.sh
 
-# Build only (no upload).
+# Build only (no upload). Without Homebrew, point XCODEGEN at a downloaded xcodegen binary.
 APPLE_TEAM_ID=ABCDE12345 \
-APP_BUNDLE_ID=com.dranzo.webuddy \
+APP_BUNDLE_ID=com.dranzo.clariva \
 MARKETING_VERSION=1.0.0 \
 ./Tools/Scripts/build_for_testflight.sh
 ```
@@ -72,7 +73,7 @@ If signing fails, open `ElementX.xcodeproj` in Xcode → target `ElementX` → *
 
 ```sh
 APPLE_TEAM_ID=ABCDE12345 \
-APP_BUNDLE_ID=com.dranzo.webuddy \
+APP_BUNDLE_ID=com.dranzo.clariva \
 APP_STORE_CONNECT_API_KEY_ID=XXXXXXXXXX \
 APP_STORE_CONNECT_API_ISSUER_ID=00000000-0000-0000-0000-000000000000 \
 APP_STORE_CONNECT_API_KEY_PATH=~/.appstoreconnect/AuthKey_XXXXXXXX.p8 \
@@ -106,11 +107,11 @@ If you'd rather upload by hand:
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `No profiles for 'com.dranzo.webuddy' were found` | Bundle ID not registered in dev portal | Repeat 0.2 |
+| `No profiles for 'com.dranzo.clariva' were found` | Bundle ID not registered in dev portal | Repeat 0.2 |
 | `Failed to register bundle identifier` during archive | App ID exists on a different team | Match `DEVELOPMENT_TEAM` to the team that owns the bundle ID |
 | `Invalid Pre-Release Train` from altool | Marketing version regressed | Increment `MARKETING_VERSION` |
 | `ERROR ITMS-90023: Missing required icon file` | App icon variant missing | Check `Variants/` and `Resources/Images.xcassets/AppIcon` |
-| Long-running `MatrixSDKFFI` errors | xcframework headers nested in subfolder | Run `swift run tools build-sdk` once, or flatten `Headers/MatrixSDKFFI/*` up a level (see CONTRIBUTING.md) |
+| `cannot find type 'RustBuffer' in scope` / `MatrixSDKFFI` errors (Xcode 26.6) | The SDK's module map is in a `MatrixSDKFFI/` header folder whose name doesn't match its `matrix_sdkFFI` module | The script passes `SWIFT_ENABLE_EXPLICIT_MODULES=NO` and `-Xcc -fmodule-map-file=$(BUILT_PRODUCTS_DIR)/include/MatrixSDKFFI/module.modulemap`; pass the same two settings to any manual `xcodebuild` |
 | `App Transport Security has blocked a cleartext HTTP` at runtime | Pointing at non-localhost HTTP URL | Use HTTPS in production. The Info.plist exception only allows `http://localhost` |
 
 ## 6. Release checklist
@@ -118,6 +119,6 @@ If you'd rather upload by hand:
 Before each TestFlight upload:
 - [ ] `MARKETING_VERSION` bumped if user-visible changes
 - [ ] `CURRENT_PROJECT_VERSION` strictly greater than the last uploaded build (the script defaults to a UTC timestamp, which is monotonic)
-- [ ] `WalletService.defaultBaseURL` points at production (`https://wallet.dranzo.com/`), not `http://localhost:3000`
+- [ ] `WalletService.defaultBaseURL` points at production (`https://wallet.clarivahub.com/`), not `http://localhost:3000`
 - [ ] No leftover debug logs printing wallet credentials
 - [ ] Internal testers added to the TestFlight group

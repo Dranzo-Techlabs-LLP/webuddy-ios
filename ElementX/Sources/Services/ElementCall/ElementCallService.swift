@@ -50,6 +50,12 @@ class ElementCallService: NSObject, ElementCallServiceProtocol, PKPushRegistryDe
     
     private var endUnansweredCallTask: Task<Void, Never>?
     
+    /// Clariva: whether the ringing call (`incomingCallID`) is a video call, as chosen by the caller.
+    /// Kept outside `CallID` as updating `incomingCallID` restarts its observation.
+    private var incomingCallIsVideo = false
+    /// Looks up a room's latest call type ("voice" | "video" | nil) from the Wallet API, bounded to 2 s.
+    private let roomCallTypeProvider: (String) async -> String?
+    
     private var ongoingCallID: CallID? {
         didSet { ongoingCallRoomIDSubject.send(ongoingCallID?.roomID) }
     }
@@ -66,10 +72,19 @@ class ElementCallService: NSObject, ElementCallServiceProtocol, PKPushRegistryDe
     
     private var declineListenerHandle: TaskHandle?
     
-    init(callProvider: CXProviderProtocol? = nil, timeProvider: TimeProvider? = nil) {
+    init(callProvider: CXProviderProtocol? = nil,
+         timeProvider: TimeProvider? = nil,
+         roomCallTypeProvider: ((String) async -> String?)? = nil) {
         pushRegistry = PKPushRegistry(queue: nil)
         
         self.timeProvider = timeProvider ?? TimeProvider(clock: ContinuousClock(), now: Date.init)
+        if let roomCallTypeProvider {
+            self.roomCallTypeProvider = roomCallTypeProvider
+        } else {
+            self.roomCallTypeProvider = { roomID in
+                await WalletAPIClient().fetchRoomCallType(roomId: roomID)
+            }
+        }
         
         if let callProvider {
             self.callProvider = callProvider
@@ -193,8 +208,14 @@ class ElementCallService: NSObject, ElementCallServiceProtocol, PKPushRegistryDe
         
         let roomDisplayName = payload.dictionaryPayload[ElementCallServiceNotificationKey.roomDisplayName.rawValue] as? String
         
+        // Clariva (Android a5f032a3bb/f825b91c6d): the NSE resolves the caller's voice/video choice
+        // from the Wallet API. When it couldn't, ring as voice (the privacy-safe default: answering
+        // keeps the camera off) and upgrade the call below if the record says video.
+        let isVideo = payload.dictionaryPayload[ElementCallServiceNotificationKey.isVideo.rawValue] as? Bool
+        incomingCallIsVideo = isVideo ?? false
+        
         let update = CXCallUpdate()
-        update.hasVideo = true
+        update.hasVideo = isVideo ?? false
         update.localizedCallerName = roomDisplayName
         // https://stackoverflow.com/a/41230020/730924
         update.remoteHandle = .init(type: .generic, value: roomID)
@@ -207,6 +228,10 @@ class ElementCallService: NSObject, ElementCallServiceProtocol, PKPushRegistryDe
             self?.actionsSubject.send(.receivedIncomingCallRequest)
             
             completion()
+        }
+        
+        if isVideo == nil {
+            resolveIncomingCallType(callID: callID, roomDisplayName: roomDisplayName)
         }
         
         endUnansweredCallTask = Task { [weak self] in
@@ -262,9 +287,15 @@ class ElementCallService: NSObject, ElementCallServiceProtocol, PKPushRegistryDe
         
         // And delay ending the call so that the app has enough time
         // to get deeplinked into
+        let isVideo = incomingCallIsVideo
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             // Then end the and call rely on `setupCallSession` to create a new one
             provider.reportCall(with: incomingCallID.callKitID, endedAt: nil, reason: .remoteEnded)
+            
+            // Clariva: answer a voice call with the camera off (DM voice intent). Unknown → voice.
+            MainActor.assumeIsolated {
+                CallMediaChoiceStore.shared.setStartWithVideoMuted(!isVideo, for: incomingCallID.roomID)
+            }
             
             self.actionsSubject.send(.startCall(roomID: incomingCallID.roomID))
             self.endUnansweredCallTask?.cancel()
@@ -303,6 +334,38 @@ class ElementCallService: NSObject, ElementCallServiceProtocol, PKPushRegistryDe
     }
     
     // MARK: - Private
+    
+    /// Fallback for pushes without the call type (e.g. the NSE lookup failed): the call was reported
+    /// as voice, so look the type up again and upgrade the ringing call if it's a video call.
+    private func resolveIncomingCallType(callID: CallID, roomDisplayName: String?) {
+        Task { [weak self, roomCallTypeProvider] in
+            let callType = await roomCallTypeProvider(callID.roomID)
+            
+            guard callType == "video" else {
+                MXLog.info("Incoming call in \(callID.roomID) stays a voice call (type: \(callType ?? "unknown")).")
+                return
+            }
+            
+            await self?.upgradeIncomingCallToVideo(callID: callID, roomDisplayName: roomDisplayName)
+        }
+    }
+    
+    @MainActor
+    private func upgradeIncomingCallToVideo(callID: CallID, roomDisplayName: String?) {
+        // The call may have been answered, declined or replaced in the meantime.
+        guard let incomingCallID, incomingCallID.callKitID == callID.callKitID else {
+            return
+        }
+        
+        MXLog.info("Incoming call in \(callID.roomID) is a video call, updating CallKit.")
+        incomingCallIsVideo = true
+        
+        let update = CXCallUpdate()
+        update.hasVideo = true
+        update.localizedCallerName = roomDisplayName
+        update.remoteHandle = .init(type: .generic, value: callID.roomID)
+        callProvider.reportCall(with: callID.callKitID, updated: update)
+    }
     
     private func tearDownCallSession(sendEndCallAction: Bool = true) {
         if sendEndCallAction, let ongoingCallID {

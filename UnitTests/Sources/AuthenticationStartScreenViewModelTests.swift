@@ -24,6 +24,7 @@ class AuthenticationStartScreenViewModelTests: XCTestCase {
     override func setUp() {
         AppSettings.resetAllSettings()
         appSettings = AppSettings()
+        appSettings.useUpstreamAccountProviders()
         // These app settings are kept local to the tests on purpose as if they are registered in the
         // ServiceLocator, the providers override that we apply will break other tests in the suite.
     }

@@ -12,7 +12,9 @@ import SwiftUI
 
 @MainActor
 protocol AuthenticationFlowCoordinatorDelegate: AnyObject {
-    func authenticationFlowCoordinator(didLoginWithSession userSession: UserSessionProtocol)
+    /// `recoveryPassphrase` (Clariva only) unlocks the account's key storage once the session is running.
+    /// It is held in memory only and must never be persisted.
+    func authenticationFlowCoordinator(didLoginWithSession userSession: UserSessionProtocol, recoveryPassphrase: String?)
 }
 
 class AuthenticationFlowCoordinator: FlowCoordinatorProtocol {
@@ -28,6 +30,10 @@ class AuthenticationFlowCoordinator: FlowCoordinatorProtocol {
     enum State: StateType {
         /// The state machine hasn't started.
         case initial
+        
+        /// Clariva: the sign-in / sign-up landing page. This is the root of the flow; the upstream
+        /// start, server and password/OIDC states below are kept compiled but are unreachable.
+        case clarivaAuthScreen
         
         /// The initial screen shown when you first launch the app.
         case startScreen
@@ -89,6 +95,23 @@ class AuthenticationFlowCoordinator: FlowCoordinatorProtocol {
         
         /// The user has successfully signed in. The new session can be found in the `userInfo`.
         case signedIn
+        /// The user has signed in on the Clariva screen. A `ClarivaSignInResult` can be found in the `userInfo`.
+        case signedInWithClariva
+    }
+    
+    private struct ClarivaSignInResult: CustomStringConvertible, CustomDebugStringConvertible {
+        let userSession: UserSessionProtocol
+        let recoveryPassphrase: String?
+
+        // Never print the passphrase: the state machine's error handler interpolates the whole
+        // transition context (including this `userInfo`) into its fatalError message.
+        var description: String {
+            "ClarivaSignInResult(hasRecoveryPassphrase: \(recoveryPassphrase != nil))"
+        }
+
+        var debugDescription: String {
+            description
+        }
     }
     
     private let stateMachine: StateMachine<State, Event>
@@ -134,6 +157,11 @@ class AuthenticationFlowCoordinator: FlowCoordinatorProtocol {
                 return
             }
             
+            guard stateMachine.state != .clarivaAuthScreen else {
+                MXLog.error("Provisioning links aren't supported by the Clariva sign-in screen, ignoring.")
+                return
+            }
+            
             if stateMachine.state != .startScreen {
                 clearRoute(animated: animated)
             }
@@ -148,6 +176,8 @@ class AuthenticationFlowCoordinator: FlowCoordinatorProtocol {
         switch stateMachine.state {
         case .initial, .startScreen:
             break
+        case .clarivaAuthScreen:
+            break // The screen's own sheets are owned by its view.
         case .qrCodeLoginScreen:
             navigationStackCoordinator.setSheetCoordinator(nil)
             stateMachine.tryEvent(.cancelledLoginWithQR) // Needs to be handled manually.
@@ -171,8 +201,9 @@ class AuthenticationFlowCoordinator: FlowCoordinatorProtocol {
     // MARK: - Setup
     
     private func configureStateMachine() {
-        stateMachine.addRoutes(event: .start, transitions: [.initial => .startScreen]) { [weak self] _ in
-            self?.showStartScreen(fromState: .initial)
+        // Clariva: the landing page replaces the upstream start screen.
+        stateMachine.addRoutes(event: .start, transitions: [.initial => .clarivaAuthScreen]) { [weak self] _ in
+            self?.showClarivaAuthScreen()
         }
         
         stateMachine.addRoutes(event: .applyProvisioningParameters, transitions: [.initial => .startScreen,
@@ -226,10 +257,12 @@ class AuthenticationFlowCoordinator: FlowCoordinatorProtocol {
         
         // Bug Report
         
-        stateMachine.addRoutes(event: .reportProblem, transitions: [.startScreen => .bugReportFlow]) { [weak self] _ in
+        stateMachine.addRoutes(event: .reportProblem, transitions: [.startScreen => .bugReportFlow,
+                                                                    .clarivaAuthScreen => .bugReportFlow]) { [weak self] _ in
             self?.startBugReportFlow()
         }
-        stateMachine.addRoutes(event: .bugReportFlowComplete, transitions: [.bugReportFlow => .startScreen])
+        // Clariva: the bug report flow can only be started from the (reachable) Clariva screen now.
+        stateMachine.addRoutes(event: .bugReportFlowComplete, transitions: [.bugReportFlow => .clarivaAuthScreen])
         
         // Completion
         
@@ -237,7 +270,12 @@ class AuthenticationFlowCoordinator: FlowCoordinatorProtocol {
                                                                .oidcAuthentication => .complete,
                                                                .loginScreen => .complete]) { [weak self] context in
             guard let userSession = context.userInfo as? UserSessionProtocol else { fatalError("The user session wasn't included in the context") }
-            self?.userHasSignedIn(userSession: userSession)
+            self?.userHasSignedIn(userSession: userSession, recoveryPassphrase: nil)
+        }
+        
+        stateMachine.addRoutes(event: .signedInWithClariva, transitions: [.clarivaAuthScreen => .complete]) { [weak self] context in
+            guard let result = context.userInfo as? ClarivaSignInResult else { fatalError("The Clariva sign-in result wasn't included in the context") }
+            self?.userHasSignedIn(userSession: result.userSession, recoveryPassphrase: result.recoveryPassphrase)
         }
         
         // Logging
@@ -257,6 +295,48 @@ class AuthenticationFlowCoordinator: FlowCoordinatorProtocol {
             }
         }
     }
+    
+    // MARK: - Clariva
+    
+    private func showClarivaAuthScreen() {
+        // Fallbacks for targets that don't register the Clariva services (e.g. UI tests).
+        let clarivaAuthService: ClarivaAuthServiceProtocol
+        if let service = ServiceLocator.shared.clarivaAuth {
+            clarivaAuthService = service
+        } else {
+            clarivaAuthService = ClarivaAuthService()
+        }
+        
+        let parameters = ClarivaAuthScreenCoordinatorParameters(authenticationService: authenticationService,
+                                                                clarivaAuthService: clarivaAuthService,
+                                                                googleSignInService: GoogleSignInService(),
+                                                                walletService: ServiceLocator.shared.wallet,
+                                                                isBugReportServiceEnabled: bugReportService.isEnabled,
+                                                                appSettings: appSettings)
+        let coordinator = ClarivaAuthScreenCoordinator(parameters: parameters)
+        
+        coordinator.actions
+            .sink { [weak self] action in
+                guard let self else { return }
+                
+                switch action {
+                case .signedIn(let userSession, let recoveryPassphrase):
+                    // Clariva skips the identity confirmation onboarding (devices are never verified manually;
+                    // key storage is unlocked with the server-provided passphrase instead).
+                    appSettings.hasRunIdentityConfirmationOnboarding = true
+                    stateMachine.tryEvent(.signedInWithClariva, userInfo: ClarivaSignInResult(userSession: userSession,
+                                                                                              recoveryPassphrase: recoveryPassphrase))
+                case .reportProblem:
+                    stateMachine.tryEvent(.reportProblem)
+                }
+            }
+            .store(in: &cancellables)
+        
+        navigationStackCoordinator.setRootCoordinator(coordinator)
+        navigationRootCoordinator.setRootCoordinator(navigationStackCoordinator)
+    }
+    
+    // MARK: - Start Screen (unreachable in Clariva)
     
     private func showStartScreen(fromState: State, applying provisioningParameters: AccountProvisioningParameters? = nil) {
         let parameters = AuthenticationStartScreenParameters(authenticationService: authenticationService,
@@ -459,7 +539,7 @@ class AuthenticationFlowCoordinator: FlowCoordinatorProtocol {
     
     // MARK: - Completion
         
-    private func userHasSignedIn(userSession: UserSessionProtocol) {
-        delegate?.authenticationFlowCoordinator(didLoginWithSession: userSession)
+    private func userHasSignedIn(userSession: UserSessionProtocol, recoveryPassphrase: String?) {
+        delegate?.authenticationFlowCoordinator(didLoginWithSession: userSession, recoveryPassphrase: recoveryPassphrase)
     }
 }

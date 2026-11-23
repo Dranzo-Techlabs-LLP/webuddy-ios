@@ -79,6 +79,7 @@ struct AppRouteURLParser {
     
     init(appSettings: AppSettings) {
         urlParsers = [
+            ClarivaUserLinkURLParser(),
             AppGroupURLParser(),
             MatrixPermalinkParser(),
             ElementWebURLParser(domains: appSettings.elementWebHosts),
@@ -106,6 +107,14 @@ struct AppRouteURLParser {
 /// - mobile.element.io
 protocol URLParser {
     func route(from url: URL) -> AppRoute?
+}
+
+/// `https://clarivahub.com/u/<mxid>` (QR codes and universal links) → the user's profile.
+/// Checked first, before the generic permalink parsers (Android a5f032a3bb).
+private struct ClarivaUserLinkURLParser: URLParser {
+    func route(from url: URL) -> AppRoute? {
+        ClarivaUserLink.userID(from: url).map { .userProfile(userID: $0) }
+    }
 }
 
 /// The parser for routes that come from app extensions such as the Share Extension.

@@ -26,6 +26,9 @@ enum SettingsScreenViewModelAction: Equatable {
     case developerOptions
     case logout
     case deactivateAccount
+    case myQRCode
+    case billingAndPayments
+    case lastSeenPrivacy
 }
 
 enum SettingsScreenSecuritySectionMode {
@@ -50,6 +53,14 @@ struct SettingsScreenViewState: BindableState {
     var showBlockedUsers = false
     let showAnalyticsSettings: Bool
     
+    /// Clariva: consultant-only "Billing and Payments" row (hidden while the role is unknown).
+    var showBillingAndPayments = false
+    
+    /// Clariva: consultant-only "Designation" row, the title shown beside their name in chats.
+    var showDesignation = false
+    /// The consultant's designation, or nil when none is set (the default "Consultant" shows).
+    var designation: String?
+    
     let isBugReportServiceEnabled: Bool
     
     var bindings = SettingsScreenViewStateBindings()
@@ -57,6 +68,14 @@ struct SettingsScreenViewState: BindableState {
 
 struct SettingsScreenViewStateBindings {
     var isPresentingAccountDeactivationConfirmation = false
+    
+    /// Clariva: the designation editor and its errors.
+    var alertInfo: AlertInfo<SettingsScreenAlertType>?
+}
+
+enum SettingsScreenAlertType: Hashable {
+    case editDesignation
+    case designationError
 }
 
 enum SettingsScreenViewAction {
@@ -77,4 +96,8 @@ enum SettingsScreenViewAction {
     case labs
     case logout
     case deactivateAccount
+    case myQRCode
+    case billingAndPayments
+    case lastSeenPrivacy
+    case editDesignation
 }

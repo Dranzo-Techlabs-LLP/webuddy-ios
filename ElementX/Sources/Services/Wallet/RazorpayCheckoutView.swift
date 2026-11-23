@@ -63,9 +63,13 @@ private struct RazorpayWebView: UIViewRepresentable {
         userContent.add(context.coordinator, name: "razorpayBridge")
         config.userContentController = userContent
 
+        // Razorpay opens bank / 3-D Secure pages through `window.open`.
+        config.preferences.javaScriptCanOpenWindowsAutomatically = true
+
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
-        webView.loadHTMLString(htmlPage, baseURL: URL(string: "https://wallet.dranzo.com/"))
+        webView.uiDelegate = context.coordinator
+        webView.loadHTMLString(htmlPage, baseURL: ClarivaConfig.apiBaseURL)
         return webView
     }
 
@@ -92,11 +96,11 @@ private struct RazorpayWebView: UIViewRepresentable {
                 key: "\(order.keyId)",
                 amount: \(order.amountInPaise),
                 currency: "\(order.currency)",
-                name: "Webuddy",
-                description: "Wallet recharge",
+                name: "Clariva",
+                description: "Wallet Recharge",
                 order_id: "\(order.orderId)",
                 prefill: { name: "\(escapedName)", contact: "\(escapedContact)" },
-                theme: { color: "#0DBD8B" },
+                theme: { color: "#3399cc" },
                 handler: function (response) {
                     postBridge({
                         type: "success",
@@ -126,13 +130,75 @@ private struct RazorpayWebView: UIViewRepresentable {
         """
     }
 
-    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+    @MainActor
+    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
         private let onCompleted: (RazorpayResult) -> Void
         private var done = false
+        /// Popups (`window.open`) opened by the checkout, e.g. bank authentication pages.
+        private var popupWebViews: [WKWebView] = []
 
         init(onCompleted: @escaping (RazorpayResult) -> Void) {
             self.onCompleted = onCompleted
         }
+
+        // MARK: WKNavigationDelegate
+
+        /// UPI intent flows navigate to app schemes (`upi://`, `phonepe://`, `tez://`,
+        /// `paytmmp://`, …) and some banks use `itms-apps://` / `tel:` links. A WKWebView can't
+        /// load those, so hand them to the system instead.
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+            guard let url = navigationAction.request.url,
+                  let scheme = url.scheme?.lowercased(),
+                  !Self.webSchemes.contains(scheme) else {
+                return .allow
+            }
+
+            openExternally(url)
+            return .cancel
+        }
+
+        private func openExternally(_ url: URL) {
+            UIApplication.shared.open(url, options: [:]) { opened in
+                if !opened {
+                    MXLog.warning("[Razorpay] No app can handle the \(url.scheme ?? "unknown") payment link")
+                }
+            }
+        }
+
+        private static let webSchemes: Set<String> = ["http", "https", "about", "data", "blob", "javascript"]
+
+        // MARK: WKUIDelegate
+
+        func webView(_ webView: WKWebView,
+                     createWebViewWith configuration: WKWebViewConfiguration,
+                     for navigationAction: WKNavigationAction,
+                     windowFeatures: WKWindowFeatures) -> WKWebView? {
+            // Non-web schemes from `window.open` go to the system, like regular navigations.
+            if let url = navigationAction.request.url,
+               let scheme = url.scheme?.lowercased(),
+               !Self.webSchemes.contains(scheme) {
+                openExternally(url)
+                return nil
+            }
+
+            // Show the popup on top of the checkout so that `window.opener` keeps working and the
+            // page can close it again with `window.close()`.
+            let popup = WKWebView(frame: webView.bounds, configuration: configuration)
+            popup.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            popup.navigationDelegate = self
+            popup.uiDelegate = self
+            webView.addSubview(popup)
+            popupWebViews.append(popup)
+            return popup
+        }
+
+        func webViewDidClose(_ webView: WKWebView) {
+            guard let index = popupWebViews.firstIndex(of: webView) else { return }
+            popupWebViews.remove(at: index)
+            webView.removeFromSuperview()
+        }
+
+        // MARK: WKScriptMessageHandler
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             guard !done, let body = message.body as? [String: Any], let type = body["type"] as? String else { return }

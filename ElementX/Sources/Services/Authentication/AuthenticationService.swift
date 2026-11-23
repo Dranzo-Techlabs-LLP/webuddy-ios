@@ -209,6 +209,61 @@ class AuthenticationService: AuthenticationServiceProtocol {
         client = nil
     }
     
+    // MARK: - Clariva
+    
+    func prepareClarivaClient() async -> Result<Void, AuthenticationServiceError> {
+        do {
+            let client = try await makeClient(homeserverAddress: ClarivaConfig.homeserverAddress)
+            self.client = client
+            flow = .login
+            return .success(())
+        } catch ClientBuildError.WellKnownDeserializationError(let error) {
+            MXLog.error("Clariva prepare failed, invalid well-known file: \(error)")
+            return .failure(.invalidWellKnown(error))
+        } catch ClientBuildError.SlidingSyncVersion(let error) {
+            MXLog.error("Clariva prepare failed, sliding sync unavailable: \(error)")
+            return .failure(.slidingSyncNotAvailable)
+        } catch {
+            MXLog.error("Clariva prepare failed: \(error)")
+            return .failure(.invalidHomeserverAddress)
+        }
+    }
+    
+    func importClarivaSession(userID: String, deviceID: String, accessToken: String) async -> Result<UserSessionProtocol, AuthenticationServiceError> {
+        guard let client else {
+            MXLog.error("Clariva import attempted without a prepared client.")
+            return .failure(.failedLoggingIn)
+        }
+        // Consume the prepared client exactly once: a failed restore must never be retried on it.
+        self.client = nil
+        
+        // After discovery this is the C-S API URL (https://matrix.clarivahub.com). Never hand the
+        // Clariva access token to any other host.
+        let homeserverURL = client.homeserver()
+        guard ClarivaConfig.isAllowedHomeserver(homeserverURL) else {
+            MXLog.error("Refusing to import a Clariva session for a disallowed homeserver: \(homeserverURL)")
+            return .failure(.invalidServer)
+        }
+        
+        do {
+            // No refresh token: upstream rejects non-OIDC sessions that have one.
+            let session = Session(accessToken: accessToken,
+                                  refreshToken: nil,
+                                  userId: userID,
+                                  deviceId: deviceID,
+                                  homeserverUrl: homeserverURL,
+                                  oidcData: nil,
+                                  slidingSyncVersion: client.slidingSyncVersion())
+            try await client.restoreSession(session: session)
+            
+            // Persists the RestorationToken in the keychain and builds the ClientProxy.
+            return await userSession(for: client)
+        } catch {
+            MXLog.error("Clariva session import failed: \(error)")
+            return .failure(.failedLoggingIn)
+        }
+    }
+    
     // MARK: - Private
     
     private func makeClient(homeserverAddress: String) async throws -> ClientProtocol {

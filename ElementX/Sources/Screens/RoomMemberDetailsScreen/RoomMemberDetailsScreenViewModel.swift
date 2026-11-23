@@ -46,6 +46,8 @@ class RoomMemberDetailsScreenViewModel: RoomMemberDetailsScreenViewModelType, Ro
             hideMemberLoadingIndicator()
         }
         
+        loadDesignationBadge()
+        
         roomProxy.identityStatusChangesPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] changes in
@@ -196,12 +198,46 @@ class RoomMemberDetailsScreenViewModel: RoomMemberDetailsScreenViewModelType, Ro
         switch userSession.clientProxy.directRoomForUserID(roomMemberProxy.userID) {
         case .success(let roomID):
             if let roomID {
+                // An EXISTING consultant ↔ consultant DM still opens (its composer shows the warning).
                 actionsSubject.send(.openDirectChat(roomID: roomID))
             } else {
-                state.bindings.inviteConfirmationUser = .init(userID: roomMemberProxy.userID, displayName: roomMemberProxy.displayName, avatarURL: roomMemberProxy.avatarURL)
+                let user = UserProfileProxy(userID: roomMemberProxy.userID, displayName: roomMemberProxy.displayName, avatarURL: roomMemberProxy.avatarURL)
+                Task { await confirmCreatingDirectChat(with: user) }
             }
         case .failure:
             state.bindings.alertInfo = .init(id: .failedOpeningDirectChat)
+        }
+    }
+    
+    /// Clariva (Android `DefaultStartDMAction`): a consultant can't start a new chat with another
+    /// consultant. Both roles must be confirmed; an unknown role fails open.
+    private func confirmCreatingDirectChat(with user: UserProfileProxy) async {
+        showMemberLoadingIndicator()
+        let isBlocked = await ConsultantChatRule.isConsultantToConsultant(ownUserID: roomProxy.ownUserID, otherUserID: user.userID)
+        hideMemberLoadingIndicator()
+        
+        if isBlocked {
+            showConsultantChatNotAllowed()
+        } else {
+            state.bindings.inviteConfirmationUser = user
+        }
+    }
+    
+    private func showConsultantChatNotAllowed() {
+        // A plain warning without a retry: retrying can't succeed.
+        state.bindings.alertInfo = .init(id: .consultantChatNotAllowed,
+                                         title: ConsultantChatRule.startChatTitle,
+                                         message: ConsultantChatRule.startChatMessage)
+    }
+    
+    /// Clariva: the consultant designation badge, seeded from the cache then re-read.
+    private func loadDesignationBadge() {
+        guard let profiles = ServiceLocator.shared.clarivaProfile else { return }
+        let userID = state.userID
+        state.designationBadge = profiles.cachedDesignationBadge(userID: userID)
+        Task { [weak self] in
+            guard await profiles.refreshPeerProfile(userID: userID) else { return }
+            self?.state.designationBadge = profiles.cachedDesignationBadge(userID: userID)
         }
     }
     
@@ -215,6 +251,12 @@ class RoomMemberDetailsScreenViewModel: RoomMemberDetailsScreenViewModelType, Ro
                                                               persistent: true),
                                                 delay: .milliseconds(200))
         defer { userIndicatorController.retractIndicatorWithId(loadingIndicatorIdentifier) }
+        
+        // Covers any path that asks to create directly.
+        if await ConsultantChatRule.isConsultantToConsultant(ownUserID: roomProxy.ownUserID, otherUserID: roomMemberProxy.userID) {
+            showConsultantChatNotAllowed()
+            return
+        }
         
         switch await userSession.clientProxy.createDirectRoom(with: roomMemberProxy.userID, expectedRoomName: roomMemberProxy.displayName) {
         case .success(let roomID):

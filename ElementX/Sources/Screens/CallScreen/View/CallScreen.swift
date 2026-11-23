@@ -341,7 +341,7 @@ struct CallScreen_Previews: PreviewProvider {
         let widgetDriver = ElementCallWidgetDriverMock()
         widgetDriver.underlyingMessagePublisher = .init()
         widgetDriver.underlyingActions = PassthroughSubject<ElementCallWidgetDriverAction, Never>().eraseToAnyPublisher()
-        widgetDriver.startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationReturnValue = .success(URL.userDirectory)
+        widgetDriver.startBaseURLClientIDColorSchemeRageshakeURLAnalyticsConfigurationStartWithVideoMutedReturnValue = .success(URL.userDirectory)
         
         roomProxy.elementCallWidgetDriverDeviceIDReturnValue = widgetDriver
         

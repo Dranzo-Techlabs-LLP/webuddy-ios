@@ -376,10 +376,24 @@ class TimelineInteractionHandler {
         switch await voiceMessageRecorder.sendVoiceMessage(timelineController: timelineController, audioConverter: AudioConverter()) {
         case .success:
             await deleteCurrentVoiceMessage()
+            chargeForVoiceMessageIfNeeded()
         case .failure(let error):
             MXLog.error("failed to send the voice message. \(error)")
             actionsSubject.send(.composer(action: .setMode(mode: .previewVoiceMessage(state: audioPlayerState, waveform: .url(recordingURL), isUploading: false))))
             actionsSubject.send(.displayErrorToast(L10n.errorFailedUploadingVoiceMessage))
+        }
+    }
+    
+    /// Clariva (Android f444b282d6 `chargeForVoiceMessageIfNeeded`): a successfully sent voice
+    /// message in a DM is billed like a text message — the same idempotent 24 h hold — then the
+    /// balance is refreshed. Never called on failure. `WalletService` no-ops for consultants.
+    private func chargeForVoiceMessageIfNeeded() {
+        let wallet: WalletService? = ServiceLocator.shared.wallet
+        guard let wallet, let partnerID = roomProxy.walletPartnerUserID else { return }
+        let ownUserID = roomProxy.ownUserID
+        Task {
+            await wallet.initiateHold(clientId: ownUserID, consultantId: partnerID)
+            await wallet.refreshBalance(userId: ownUserID)
         }
     }
     

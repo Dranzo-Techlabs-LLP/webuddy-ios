@@ -3,8 +3,11 @@
 #
 # Required env vars:
 #   APPLE_TEAM_ID       — your Apple Developer Team ID (10 chars, e.g. ABCDE12345)
-#   APP_BUNDLE_ID       — bundle identifier registered for the app (e.g. com.dranzo.webuddy)
+#   APP_BUNDLE_ID       — bundle identifier registered for the app (e.g. com.dranzo.clariva — the
+#                         Google Sign-In iOS client is registered for this one)
 # Optional:
+#   APP_GROUP_ID        — app group shared with the NSE/share extension; defaults to group.<APP_BUNDLE_ID>
+#   XCODEGEN            — path to the xcodegen binary; defaults to `xcodegen` on PATH
 #   APP_STORE_CONNECT_API_KEY_ID, _ISSUER_ID, _KEY_PATH — for non-interactive upload
 #   MARKETING_VERSION   — overrides project.yml MARKETING_VERSION
 #   BUILD_NUMBER        — overrides CURRENT_PROJECT_VERSION; defaults to UTC timestamp
@@ -13,7 +16,7 @@
 #
 # What it does:
 #   1. Verifies the env vars + tools (xcodebuild, xcodegen, altool).
-#   2. Patches project.yml + app.yml in-place with your bundle id, team id, version.
+#   2. Patches project.yml + app.yml in-place with your bundle id, app group, team id, version.
 #   3. Regenerates ElementX.xcodeproj via xcodegen.
 #   4. Archives the ElementX scheme (Release) for iOS device.
 #   5. Exports an App Store .ipa using ExportOptions.plist (auto signing via xcodebuild).
@@ -30,6 +33,8 @@ ARCHIVE_PATH="${ROOT}/build/Webuddy.xcarchive"
 EXPORT_DIR="${ROOT}/build/ipa"
 EXPORT_OPTIONS="${ROOT}/build/ExportOptions.plist"
 DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
+XCODEGEN="${XCODEGEN:-xcodegen}"
+ARCHIVE_LOG="${ROOT}/build/archive.log"
 
 require() {
     if [ -z "${!1:-}" ]; then
@@ -41,8 +46,8 @@ require() {
 require APPLE_TEAM_ID
 require APP_BUNDLE_ID
 
-if ! command -v xcodegen >/dev/null 2>&1; then
-    echo "ERROR: xcodegen not found. Install with: brew install xcodegen" >&2
+if ! command -v "${XCODEGEN}" >/dev/null 2>&1; then
+    echo "ERROR: xcodegen not found. Install with: brew install xcodegen (or set XCODEGEN=/path/to/xcodegen)" >&2
     exit 1
 fi
 if ! command -v "${DEVELOPER_DIR}/usr/bin/xcodebuild" >/dev/null 2>&1; then
@@ -51,16 +56,18 @@ if ! command -v "${DEVELOPER_DIR}/usr/bin/xcodebuild" >/dev/null 2>&1; then
 fi
 
 BUILD_NUMBER="${BUILD_NUMBER:-$(date -u +%Y%m%d%H%M)}"
+APP_GROUP_ID="${APP_GROUP_ID:-group.${APP_BUNDLE_ID}}"
 echo ">> Team:        ${APPLE_TEAM_ID}"
 echo ">> Bundle ID:   ${APP_BUNDLE_ID}"
+echo ">> App group:   ${APP_GROUP_ID}"
 echo ">> Build #:     ${BUILD_NUMBER}"
 echo ">> Marketing v: ${MARKETING_VERSION:-(unchanged)}"
 
 # 1. Patch app.yml and project.yml.
 echo ">> Patching project.yml and app.yml..."
-python3 - "$APPLE_TEAM_ID" "$APP_BUNDLE_ID" "${MARKETING_VERSION:-}" "$BUILD_NUMBER" <<'PY'
+python3 - "$APPLE_TEAM_ID" "$APP_BUNDLE_ID" "${MARKETING_VERSION:-}" "$BUILD_NUMBER" "$APP_GROUP_ID" <<'PY'
 import re, sys, pathlib
-team, bundle, marketing, build = sys.argv[1:5]
+team, bundle, marketing, build, app_group = sys.argv[1:6]
 
 def patch(path, replacements):
     p = pathlib.Path(path)
@@ -72,19 +79,21 @@ def patch(path, replacements):
     p.write_text(txt)
 
 patch("app.yml", [
-    (r"^(\s*BASE_BUNDLE_IDENTIFIER:\s*).*$", lambda _: f"\\g<1>{bundle}"),
-    (r"^(\s*DEVELOPMENT_TEAM:\s*).*$",       lambda _: f"\\g<1>{team}"),
+    (r"^(\s*BASE_BUNDLE_IDENTIFIER:\s*).*$", lambda m: m.group(1) + bundle),
+    (r"^(\s*DEVELOPMENT_TEAM:\s*).*$",       lambda m: m.group(1) + team),
+    # Element's group.io.element can't be signed by another team.
+    (r"^(\s*APP_GROUP_IDENTIFIER:\s*).*$",   lambda m: m.group(1) + app_group),
 ])
 
-repls = [(r"^(\s*CURRENT_PROJECT_VERSION:\s*).*$", lambda _: f"\\g<1>{build}")]
+repls = [(r"^(\s*CURRENT_PROJECT_VERSION:\s*).*$", lambda m: m.group(1) + build)]
 if marketing:
-    repls.append((r"^(\s*MARKETING_VERSION:\s*).*$", lambda _: f"\\g<1>{marketing}"))
+    repls.append((r"^(\s*MARKETING_VERSION:\s*).*$", lambda m: m.group(1) + marketing))
 patch("project.yml", repls)
 PY
 
 # 2. Regenerate xcodeproj.
 echo ">> Regenerating ElementX.xcodeproj..."
-xcodegen generate >/dev/null
+"${XCODEGEN}" generate >/dev/null
 
 # 3. Write ExportOptions.plist for App Store distribution with automatic signing.
 mkdir -p "${ROOT}/build"
@@ -93,7 +102,7 @@ cat > "${EXPORT_OPTIONS}" <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>method</key><string>app-store</string>
+    <key>method</key><string>app-store-connect</string>
     <key>teamID</key><string>${APPLE_TEAM_ID}</string>
     <key>signingStyle</key><string>automatic</string>
     <key>destination</key><string>export</string>
@@ -105,19 +114,25 @@ cat > "${EXPORT_OPTIONS}" <<EOF
 EOF
 
 # 4. Archive.
-echo ">> Archiving (Release)..."
-DEVELOPER_DIR="${DEVELOPER_DIR}" xcodebuild \
+echo ">> Archiving (Release), log: ${ARCHIVE_LOG}..."
+rm -rf "${ARCHIVE_PATH}"
+# The two Swift settings work around Xcode 26.6 not finding the Matrix SDK's `matrix_sdkFFI`
+# module (its module map sits in a differently named `MatrixSDKFFI` header folder).
+if ! DEVELOPER_DIR="${DEVELOPER_DIR}" xcodebuild \
     -project ElementX.xcodeproj \
     -scheme "${SCHEME}" \
     -configuration Release \
     -destination 'generic/platform=iOS' \
     -archivePath "${ARCHIVE_PATH}" \
     -allowProvisioningUpdates \
+    -skipPackagePluginValidation \
+    -skipMacroValidation \
     DEVELOPMENT_TEAM="${APPLE_TEAM_ID}" \
-    archive | xcbeautify --quiet --is-ci 2>/dev/null || true
-
-if [ ! -d "${ARCHIVE_PATH}" ]; then
-    echo "ERROR: archive failed (no .xcarchive at ${ARCHIVE_PATH})" >&2
+    SWIFT_ENABLE_EXPLICIT_MODULES=NO \
+    'OTHER_SWIFT_FLAGS=$(inherited) -Xcc -fmodule-map-file=$(BUILT_PRODUCTS_DIR)/include/MatrixSDKFFI/module.modulemap' \
+    archive > "${ARCHIVE_LOG}" 2>&1 || [ ! -d "${ARCHIVE_PATH}" ]; then
+    echo "ERROR: archive failed. Errors from ${ARCHIVE_LOG}:" >&2
+    grep -E "error:|\*\* ARCHIVE" "${ARCHIVE_LOG}" | sort -u | head -40 >&2
     exit 1
 fi
 

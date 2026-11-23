@@ -11,6 +11,9 @@ import UIKit
 import UniformTypeIdentifiers
 
 struct RoomTimelineItemFactory: RoomTimelineItemFactoryProtocol {
+    /// Debug escape hatch: flip to `true` to render `failedToParse*` events as "Unsupported event" bubbles again.
+    private static let showsUnparseableEvents = false
+    
     private let attributedStringBuilder: AttributedStringBuilderProtocol
     private let stateEventStringBuilder: RoomStateEventStringBuilder
     
@@ -45,9 +48,11 @@ struct RoomTimelineItemFactory: RoomTimelineItemFactoryProtocol {
                 return nil // We shouldn't receive these without asking for custom event types.
             }
         case .failedToParseMessageLike(let eventType, let error):
-            return buildUnsupportedTimelineItem(eventItemProxy, eventType, error, isOutgoing)
+            // Clariva (Android 93b7510204): unparseable events are dropped instead of rendering an
+            // "Unsupported event" bubble. `TimelineController` compactMaps the nil away.
+            return Self.showsUnparseableEvents ? buildUnsupportedTimelineItem(eventItemProxy, eventType, error, isOutgoing) : nil
         case .failedToParseState(let eventType, _, let error):
-            return buildUnsupportedTimelineItem(eventItemProxy, eventType, error, isOutgoing)
+            return Self.showsUnparseableEvents ? buildUnsupportedTimelineItem(eventItemProxy, eventType, error, isOutgoing) : nil
         case .state(_, let content):
             if isDM, case .roomCreate = content {
                 return nil

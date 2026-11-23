@@ -681,7 +681,7 @@ class MockScreen: Identifiable {
                     switch action {
                     case .finished(let roomID):
                         navigationRootCoordinator.setSheetCoordinator(nil)
-                    case .showRoomDirectory:
+                    case .showRoomDirectory, .showUserProfile:
                         break // The test doesn't cover this.
                     }
                 }

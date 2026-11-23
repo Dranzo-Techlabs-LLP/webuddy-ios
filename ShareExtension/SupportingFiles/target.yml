@@ -86,6 +86,7 @@ targets:
     - path: ../../ElementX/Sources/AppHooks/Hooks/RemoteSettingsHook.swift
     - path: ../../Secrets/Secrets.swift
     - path: ../../ElementX/Sources/Application/Settings
+    - path: ../../ElementX/Sources/Services/Clariva/ClarivaConfig.swift
     - path: ../../ElementX/Sources/Application/TargetConfiguration.swift
     - path: ../../ElementX/Sources/Services/Keychain/KeychainController.swift
     - path: ../../ElementX/Sources/Services/Keychain/KeychainControllerProtocol.swift

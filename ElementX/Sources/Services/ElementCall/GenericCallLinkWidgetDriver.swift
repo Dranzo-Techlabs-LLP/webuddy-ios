@@ -28,7 +28,8 @@ class GenericCallLinkWidgetDriver: ElementCallWidgetDriverProtocol {
                clientID: String,
                colorScheme: ColorScheme,
                rageshakeURL: String?,
-               analyticsConfiguration: ElementCallAnalyticsConfiguration?) async -> Result<URL, ElementCallWidgetDriverError> {
+               analyticsConfiguration: ElementCallAnalyticsConfiguration?,
+               startWithVideoMuted: Bool) async -> Result<URL, ElementCallWidgetDriverError> {
         MXLog.error("Nothing to start, use the configuration's URL directly instead.")
         return .success(url)
     }

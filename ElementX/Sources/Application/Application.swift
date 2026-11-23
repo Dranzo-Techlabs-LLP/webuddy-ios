@@ -54,6 +54,13 @@ struct Application: App {
                     // but calls from Recents still send it ¯\_(ツ)_/¯
                     appCoordinator.handleUserActivity(userActivity)
                 }
+                // Clariva: voice calls are reported to CallKit as audio, so their Recents redial uses these.
+                .onContinueUserActivity("INStartCallIntent") { userActivity in
+                    appCoordinator.handleUserActivity(userActivity)
+                }
+                .onContinueUserActivity("INStartAudioCallIntent") { userActivity in
+                    appCoordinator.handleUserActivity(userActivity)
+                }
                 .task {
                     appCoordinator.start()
                 }

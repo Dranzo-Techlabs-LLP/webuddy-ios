@@ -55,6 +55,10 @@ final class RoomScreenCoordinator: CoordinatorProtocol {
     private var roomViewModel: RoomScreenViewModelProtocol
     private var timelineViewModel: TimelineViewModelProtocol
     private var composerViewModel: ComposerToolbarViewModelProtocol
+    /// Clariva chat/call credit gate for this room (restricted composer, call button, new-session warning).
+    private let walletGate: ChatWalletGate
+    /// Drops repeated Send taps while an unknown hold state is being resolved.
+    private var isResolvingSendDecision = false
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -69,6 +73,9 @@ final class RoomScreenCoordinator: CoordinatorProtocol {
             selectedPinnedEventID = focussedEvent.shouldSetPin ? focussedEvent.eventID : nil
         }
         
+        let walletGate = ChatWalletGate(roomProxy: parameters.roomProxy, wallet: ServiceLocator.shared.wallet)
+        self.walletGate = walletGate
+        
         roomViewModel = RoomScreenViewModel(userSession: parameters.userSession,
                                             roomProxy: parameters.roomProxy,
                                             initialSelectedPinnedEventID: selectedPinnedEventID,
@@ -76,7 +83,8 @@ final class RoomScreenCoordinator: CoordinatorProtocol {
                                             appSettings: parameters.appSettings,
                                             appHooks: parameters.appHooks,
                                             analyticsService: parameters.analytics,
-                                            userIndicatorController: parameters.userIndicatorController)
+                                            userIndicatorController: parameters.userIndicatorController,
+                                            chatGateStatePublisher: walletGate.statePublisher)
         
         timelineViewModel = TimelineViewModel(roomProxy: parameters.roomProxy,
                                               focussedEventID: parameters.focussedEvent?.eventID,
@@ -162,7 +170,11 @@ final class RoomScreenCoordinator: CoordinatorProtocol {
             .sink { [weak self] action in
                 guard let self else { return }
 
-                timelineViewModel.process(composerAction: action)
+                if case let .sendMessage(message, _, mode, _) = action, Self.canStartBillableSession(message: message, mode: mode) {
+                    handleSendMessage(action)
+                } else {
+                    timelineViewModel.process(composerAction: action)
+                }
             }
             .store(in: &cancellables)
         
@@ -196,6 +208,8 @@ final class RoomScreenCoordinator: CoordinatorProtocol {
         // Loading the draft requires the subscriptions to be set up first otherwise
         // the room won't be be able to propagate the information to the composer.
         composerViewModel.start()
+        
+        walletGate.start()
     }
     
     func focusOnEvent(_ focussedEvent: FocusEvent) {
@@ -220,6 +234,53 @@ final class RoomScreenCoordinator: CoordinatorProtocol {
     func stop() {
         composerViewModel.stop()
         roomViewModel.stop()
+        walletGate.stop()
+    }
+    
+    // MARK: - Clariva: new session warning (Android 165e2616fd)
+    
+    /// The `/join` slash command never sends a message nor starts a hold, so it is never warned.
+    private static func canStartBillableSession(message: String, mode: ComposerMode) -> Bool {
+        if case .default = mode, message.hasPrefix("/join ") {
+            return false
+        }
+        return true
+    }
+    
+    /// Intercepts a text send: when it would start a new billable session (no active hold with this
+    /// consultant), the "Start a new session?" warning is shown first. The composer is only cleared
+    /// by the timeline once the message is actually sent, so Cancel keeps the text in place.
+    /// Voice messages are never warned (they don't go through `.sendMessage`).
+    private func handleSendMessage(_ action: ComposerToolbarViewModelAction) {
+        switch walletGate.preSendDecision() {
+        case .send:
+            timelineViewModel.process(composerAction: action)
+        case .warn:
+            presentNewSessionWarning(for: action)
+        case .needsCheck:
+            guard !isResolvingSendDecision else { return }
+            isResolvingSendDecision = true
+            Task { [weak self] in
+                guard let self else { return }
+                let decision = await walletGate.resolvePreSendDecision()
+                isResolvingSendDecision = false
+                if decision == .warn {
+                    presentNewSessionWarning(for: action)
+                } else {
+                    timelineViewModel.process(composerAction: action)
+                }
+            }
+        }
+    }
+    
+    private func presentNewSessionWarning(for action: ComposerToolbarViewModelAction) {
+        roomViewModel.presentNewSessionWarning { [weak self] neverRemindAgain in
+            guard let self else { return }
+            if neverRemindAgain {
+                walletGate.optOutOfNewSessionWarning()
+            }
+            timelineViewModel.process(composerAction: action)
+        }
     }
     
     func toPresentable() -> AnyView {

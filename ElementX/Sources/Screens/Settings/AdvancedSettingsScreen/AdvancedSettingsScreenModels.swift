@@ -13,7 +13,6 @@ struct AdvancedSettingsScreenViewState: BindableState {
     var hideInviteAvatars: Bool
     var isWaitingTimelineMediaVisibility = false
     var isWaitingHideInviteAvatars = false
-    var currentUserID: String?
     var bindings: AdvancedSettingsScreenViewStateBindings
 }
 

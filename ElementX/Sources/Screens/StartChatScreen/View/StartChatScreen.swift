@@ -49,12 +49,18 @@ struct StartChatScreen: View {
     /// The content shown in the form when the search query is empty.
     @ViewBuilder
     private var mainContent: some View {
-        createRoomSection
+        // Clariva (Android ee053dc156): group rooms are hidden behind `ClarivaConfig.groupRoomsEnabled`.
+        if context.viewState.areGroupRoomsEnabled {
+            createRoomSection
+        }
+        scanQRCodeSection
         if context.viewState.isRoomDirectoryEnabled {
             roomDirectorySearch
         }
         inviteFriendsSection
-        joinRoomByAddressSection
+        if context.viewState.areGroupRoomsEnabled {
+            joinRoomByAddressSection
+        }
         usersSection
     }
     
@@ -94,6 +100,15 @@ struct StartChatScreen: View {
                                     icon: \.plus),
                     kind: .navigationLink { context.send(viewAction: .createRoom) })
                 .accessibilityIdentifier(A11yIdentifiers.startChatScreen.createRoom)
+        }
+    }
+    
+    /// Clariva (Android f444b282d6): scan another user's "My QR code" to open their profile.
+    private var scanQRCodeSection: some View {
+        Section {
+            ListRow(label: .default(title: "Scan QR code",
+                                    icon: \.qrCode),
+                    kind: .navigationLink { context.send(viewAction: .scanQRCode) })
         }
     }
     

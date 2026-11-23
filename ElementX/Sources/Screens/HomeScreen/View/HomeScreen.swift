@@ -13,7 +13,7 @@ import SwiftUI
 
 struct HomeScreen: View {
     @ObservedObject var context: HomeScreenViewModel.Context
-    @ObservedObject private var wallet: WalletService = ServiceLocator.shared.wallet
+    @ObservedObject private var wallet: WalletService = ServiceLocator.shared.wallet ?? .offline
 
     @State private var scrollViewAdapter = ScrollViewAdapter()
     @State private var walletSheetShown = false
@@ -34,7 +34,7 @@ struct HomeScreen: View {
                 let userID = context.viewState.userID
                 // ensureWalletUser now consumes pendingIsConsultant set on the signup screen,
                 // so no post-login role popup is needed.
-                await wallet.ensureWalletUser(userId: userID, name: context.viewState.userDisplayName)
+                await wallet.ensureWalletUser(userId: userID)
                 await wallet.refreshBalance(userId: userID)
             }
             .sheet(isPresented: $walletSheetShown) {
@@ -78,12 +78,14 @@ struct HomeScreen: View {
         Button {
             walletSheetShown = true
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "creditcard.fill")
-                    .font(.compound.bodySM)
-                    .foregroundStyle(.secondary)
-                Text("\(wallet.credits ?? 0) credits")
-                    .font(.compound.bodyMDSemibold)
+            HStack(spacing: 6) {
+                Image(systemName: "wallet.bifold.fill")
+                    .font(.compound.bodyMD)
+                    .foregroundStyle(.compound.iconPrimary)
+                    // Android: the icon is described as "Wallet", the balance is still read out.
+                    .accessibilityLabel("Wallet")
+                Text(verbatim: wallet.credits.map { "\($0) credits" } ?? "Loading...")
+                    .font(.compound.bodyLGSemibold)
                     .foregroundColor(.compound.textPrimary)
             }
         }

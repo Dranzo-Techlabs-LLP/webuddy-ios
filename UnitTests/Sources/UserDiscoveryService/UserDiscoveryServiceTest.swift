@@ -22,6 +22,8 @@ class UserDiscoveryServiceTest: XCTestCase {
     
     func testQueryShowingResults() async throws {
         clientProxy.searchUsersSearchTermLimitReturnValue = .success(.init(results: [UserProfileProxy.mockAlice], limited: true))
+        // The derived `@aaa:matrix.org` doesn't exist, so it mustn't add a row.
+        clientProxy.profileForReturnValue = .failure(.sdkError(ClientProxyMockError.generic))
         
         let results = await (try? search(query: "AAA").get()) ?? []
         assertSearchResults(results, toBe: 1)
@@ -29,6 +31,7 @@ class UserDiscoveryServiceTest: XCTestCase {
     
     func testOwnerIsFiltered() async throws {
         clientProxy.searchUsersSearchTermLimitReturnValue = .success(.init(results: [UserProfileProxy(userID: "@foo:matrix.org")], limited: true))
+        clientProxy.profileForReturnValue = .failure(.sdkError(ClientProxyMockError.generic))
         
         let results = await (try? search(query: "AAA").get()) ?? []
         assertSearchResults(results, toBe: 0)
@@ -38,7 +41,50 @@ class UserDiscoveryServiceTest: XCTestCase {
         clientProxy.searchUsersSearchTermLimitReturnValue = .success(.init(results: searchResults, limited: true))
         clientProxy.profileForReturnValue = .success(.init(userID: "@alice:matrix.org"))
         
-        let results = await (try? search(query: "AAA").get()) ?? []
+        // Free text (not a Matrix ID nor a bare username) never triggers a profile lookup.
+        let results = await (try? search(query: "AAA BBB").get()) ?? []
+        assertSearchResults(results, toBe: 3)
+        XCTAssertFalse(clientProxy.profileForCalled)
+    }
+    
+    // MARK: Username-only search (Android ccbfee0f5c)
+    
+    func testDerivedUserIsShownFirstWhenItExists() async {
+        clientProxy.searchUsersSearchTermLimitReturnValue = .success(.init(results: searchResults, limited: true))
+        clientProxy.profileForReturnValue = .success(.init(userID: "@dave:matrix.org", displayName: "Dave"))
+        
+        let results = await (try? search(query: " Dave ").get()) ?? []
+        
+        assertSearchResults(results, toBe: 4)
+        XCTAssertEqual(results.first?.userID, "@dave:matrix.org")
+        XCTAssertEqual(clientProxy.profileForReceivedUserID, "@dave:matrix.org")
+        XCTAssertEqual(clientProxy.searchUsersSearchTermLimitReceivedArguments?.searchTerm, "Dave")
+    }
+    
+    func testDerivedUserIsNotShownWhenItDoesNotExist() async {
+        clientProxy.searchUsersSearchTermLimitReturnValue = .success(.init(results: searchResults, limited: true))
+        clientProxy.profileForReturnValue = .failure(.sdkError(ClientProxyMockError.generic))
+        
+        let results = await (try? search(query: "dave").get()) ?? []
+        
+        assertSearchResults(results, toBe: 3)
+        XCTAssertTrue(clientProxy.profileForCalled)
+    }
+    
+    func testDerivedUserIsNotDuplicated() async {
+        clientProxy.searchUsersSearchTermLimitReturnValue = .success(.init(results: searchResults, limited: true))
+        clientProxy.profileForReturnValue = .success(.init(userID: "@bob:matrix.org"))
+        
+        let results = await (try? search(query: "bob").get()) ?? []
+        
+        assertSearchResults(results, toBe: 3)
+    }
+    
+    func testOwnLocalpartIsNotDerived() async {
+        clientProxy.searchUsersSearchTermLimitReturnValue = .success(.init(results: searchResults, limited: true))
+        
+        let results = await (try? search(query: "foo").get()) ?? []
+        
         assertSearchResults(results, toBe: 3)
         XCTAssertFalse(clientProxy.profileForCalled)
     }

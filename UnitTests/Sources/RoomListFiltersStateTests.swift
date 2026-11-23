@@ -19,7 +19,8 @@ final class RoomListFiltersStateTests: XCTestCase {
     override func setUp() {
         AppSettings.resetAllSettings()
         appSettings = AppSettings()
-        state = RoomListFiltersState(appSettings: appSettings)
+        // The group-room filter is covered by `testWithGroupRoomsDisabled`.
+        state = RoomListFiltersState(appSettings: appSettings, areGroupRoomsEnabled: true)
     }
     
     override func tearDown() {
@@ -120,10 +121,25 @@ final class RoomListFiltersStateTests: XCTestCase {
         XCTAssertEqual(state.availableFilters, [.unreads, .people, .rooms])
     }
     
+    // MARK: Group rooms (Clariva)
+    
+    func testWithGroupRoomsDisabled() {
+        state = RoomListFiltersState(appSettings: appSettings, areGroupRoomsEnabled: false)
+        XCTAssertEqual(state.availableFilters, [.unreads, .people, .favourites, .invites])
+        
+        state.activateFilter(.rooms)
+        XCTAssertFalse(state.isFiltering)
+        XCTAssertEqual(state.activeFilters, [])
+        
+        state.activateFilter(.unreads)
+        XCTAssertEqual(state.activeFilters, [.unreads])
+        XCTAssertEqual(state.availableFilters, [.people, .favourites])
+    }
+    
     // MARK: - Helpers
     
     private func enableLowPriorityFeature() {
         appSettings.lowPriorityFilterEnabled = true
-        state = RoomListFiltersState(appSettings: appSettings)
+        state = RoomListFiltersState(appSettings: appSettings, areGroupRoomsEnabled: true)
     }
 }

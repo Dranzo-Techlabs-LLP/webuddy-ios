@@ -10,51 +10,13 @@ import Compound
 import SwiftUI
 import WysiwygComposer
 
-/// Consultant-facing banner shown at the top of a DM when the client has requested a refund
-/// of the active wallet hold. Offers Approve / Reject actions. Mirrors Android
-/// `MessagesViewTopBar`'s refund affordance — rendered as an inline top banner since iOS has
-/// no equivalent top-bar action slot for the two-button confirmation pair.
-private struct RefundRequestBanner: View {
-    let isApproveDisabled: Bool
-    let isRejectDisabled: Bool
-    let onApprove: () -> Void
-    let onReject: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            CompoundIcon(\.infoSolid, size: .medium, relativeTo: .compound.bodyMD)
-                .foregroundStyle(Color.compound.iconCriticalPrimary)
-                .padding(.top, 2)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Refund requested")
-                    .font(.compound.bodyMDSemibold)
-                    .foregroundColor(.compound.textPrimary)
-                Text("The client is asking for the held credits back. Approve to return them now, or reject to keep the hold in place.")
-                    .font(.compound.bodySM)
-                    .foregroundColor(.compound.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 8) {
-                    Button(action: onReject) { Text("Reject") }
-                        .buttonStyle(.compound(.secondary, size: .medium))
-                        .disabled(isRejectDisabled)
-                    Button(action: onApprove) { Text("Approve") }
-                        .buttonStyle(.compound(.primary, size: .medium))
-                        .disabled(isApproveDisabled)
-                }
-                .padding(.top, 4)
-            }
-        }
-        .padding(12)
-        .background(Color.compound.bgCriticalSubtle, in: RoundedRectangle(cornerRadius: 12))
-    }
-}
-
 struct RoomScreen: View {
     @ObservedObject private var context: RoomScreenViewModelType.Context
     @ObservedObject private var timelineContext: TimelineViewModelType.Context
     let composerToolbar: ComposerToolbar
     @Environment(\.accessibilityVoiceOverEnabled) private var isVoiceOverEnabled
+    /// Clariva: the DM "Start a call" Voice/Video chooser.
+    @State private var isCallTypeChooserPresented = false
 
     init(context: RoomScreenViewModelType.Context,
          timelineContext: TimelineViewModelType.Context,
@@ -112,6 +74,13 @@ struct RoomScreen: View {
             .track(screen: .Room)
             .sentryTrace("\(Self.self)")
             .overlay(alignment: .top) { refundSnackbar }
+            .alert(item: $context.alertInfo)
+            .sheet(item: $context.approveRefundSheet) { sheet in
+                ApproveRefundSheet(heldAmount: sheet.heldAmount,
+                                   isInProgress: context.viewState.isRefundRequestInProgress,
+                                   onApprove: { amount in context.send(viewAction: .approveRefund(amount: amount)) },
+                                   onCancel: { context.approveRefundSheet = nil })
+            }
     }
 
     /// Chat-local refund snackbar (request-sent / approved / rejected / error). Bypasses the
@@ -153,12 +122,9 @@ struct RoomScreen: View {
 
     @ViewBuilder
     private var refundBanner: some View {
-        RefundRequestBanner(isApproveDisabled: context.viewState.isRefundRequestInProgress,
-                            isRejectDisabled: context.viewState.isRefundRequestInProgress,
-                            onApprove: { context.send(viewAction: .approveRefund) },
-                            onReject: { context.send(viewAction: .rejectRefund) })
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+        RefundRequestBanner(isInProgress: context.viewState.isRefundRequestInProgress,
+                            onApprove: { context.send(viewAction: .approveRefundTapped) },
+                            onReject: { context.send(viewAction: .rejectRefundTapped) })
     }
     
     @ViewBuilder
@@ -191,6 +157,15 @@ struct RoomScreen: View {
     private var composer: some View {
         if context.viewState.hasSuccessor {
             tombstonedDialogue
+        } else if context.viewState.canSendMessage, context.viewState.isConsultantPeerBlocked {
+            // Clariva (Android ee053dc156): consultants may only chat with clients, so an existing
+            // consultant ↔ consultant DM is read-only.
+            ChatRestrictedComposerView(isConsultantPeerBlocked: true)
+        } else if context.viewState.canSendMessage, context.viewState.chatGate.isRestricted {
+            // Clariva: replaces the whole composer (attachments and voice recording included). The
+            // composer view model lives on in the coordinator, so the draft survives.
+            ChatRestrictedComposerView(credits: context.viewState.chatGate.credits,
+                                       requiredCredits: context.viewState.chatGate.recipientRate)
         } else if context.viewState.canSendMessage, !ProcessInfo.isRunningAccessibilityTests {
             // We are not sure why but when wrapped in the room screen the composer toolbar breaks the accessibility tests
             composerToolbar
@@ -238,10 +213,13 @@ struct RoomScreen: View {
         // .principal + .primaryAction works better than .navigation leading + trailing
         // as the latter disables interaction in the action button for rooms with long names
         ToolbarItem(placement: .principal) {
-            RoomHeaderView(roomName: context.viewState.roomTitle,
-                           roomAvatar: context.viewState.roomAvatar,
-                           dmRecipientVerificationState: context.viewState.dmRecipientVerificationState,
-                           mediaProvider: context.mediaProvider)
+            // Clariva: `RoomHeaderView` plus the DM partner's designation badge and presence.
+            RoomScreenHeaderView(roomName: context.viewState.roomTitle,
+                                 roomAvatar: context.viewState.roomAvatar,
+                                 dmRecipientVerificationState: context.viewState.dmRecipientVerificationState,
+                                 peerBadge: context.viewState.dmPeerStatus.badge,
+                                 peerPresence: context.viewState.dmPeerStatus.presence,
+                                 mediaProvider: context.mediaProvider)
                 // Using a button stops it from getting truncated in the navigation bar
                 .contentShape(.rect)
                 .onTapGesture {
@@ -249,56 +227,108 @@ struct RoomScreen: View {
                 }
         }
         
+        // Client-side "Request refund" toolbar button, left of the call button. Mirrors Android
+        // `MessagesViewTopBar` — shown only when an active hold exists, the local user is the
+        // client side of that hold, and no refund has been requested or decided yet.
+        if shouldShowRequestRefundButton {
+            ToolbarItem(placement: .primaryAction) {
+                requestRefundButton
+            }
+        }
+        
         if !ProcessInfo.processInfo.isiOSAppOnMac {
             ToolbarItem(placement: .primaryAction) {
+                // Also hidden (not disabled) when the chat gate restricts this client (Android f444b282d6).
                 if context.viewState.shouldShowCallButton {
                     callButton
                         .disabled(!context.viewState.canJoinCall)
                 }
             }
         }
-
-        // Client-side "Request refund" toolbar button. Mirrors Android `MessagesViewTopBar`
-        // refund action — shown only when an active hold exists, the local user is the
-        // client side of that hold, and no refund decision has been recorded yet.
-        if shouldShowRequestRefundButton {
-            ToolbarItem(placement: .primaryAction) {
-                requestRefundButton
-            }
-        }
     }
 
-    /// Client-side: active hold + not yet decided + I am NOT the consultant on this hold.
+    /// Client-side: active hold + refunds active + not yet requested/decided + I am NOT the consultant.
     private var shouldShowRequestRefundButton: Bool {
         context.viewState.isRefundButtonVisible &&
-            context.viewState.refundStatus != "requested" &&
-            context.viewState.refundStatus != "approved" &&
-            context.viewState.refundStatus != "rejected" &&
-            !context.viewState.isConsultantInThisRoom
+            !context.viewState.isConsultantInThisRoom &&
+            (context.viewState.refundStatus == nil || context.viewState.refundStatus == "none")
     }
 
+    /// Compact "Refund" pill (Android ee053dc156): a full "Request refund" label left the DM title
+    /// (name, designation badge, presence) too little room.
     private var requestRefundButton: some View {
         Button {
-            context.send(viewAction: .requestRefund)
+            context.send(viewAction: .requestRefundTapped)
         } label: {
-            CompoundIcon(\.restart)
+            refundButtonLabel
         }
         .disabled(context.viewState.isRefundRequestInProgress)
         .accessibilityLabel("Request refund")
     }
     
     @ViewBuilder
+    private var refundButtonLabel: some View {
+        let label = Label("Refund", icon: \.restart, iconSize: .xSmall, relativeTo: .compound.bodySM)
+            .labelStyle(.titleAndIcon)
+            .font(.compound.bodySMSemibold)
+            .lineLimit(1)
+            .foregroundStyle(context.viewState.isRefundRequestInProgress ? Color.compound.textDisabled : Color.compound.textPrimary)
+        if #available(iOS 26, *) {
+            // Toolbar items already get a capsule background.
+            label
+        } else {
+            label
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .overlay {
+                    Capsule()
+                        .stroke(Color.compound.borderInteractiveSecondary, lineWidth: 1)
+                }
+        }
+    }
+    
+    private var joinCallIcon: KeyPath<CompoundIcons, Image> {
+        if context.viewState.ongoingCallIsVideo {
+            \.videoCallSolid
+        } else {
+            \.voiceCallSolid
+        }
+    }
+    
+    @ViewBuilder
     private var callButton: some View {
         if context.viewState.hasOngoingCall {
+            // Join: no chooser; the icon follows the type recorded by the caller (unknown → voice).
             Button {
                 context.send(viewAction: .displayCall)
             } label: {
-                Label(L10n.actionJoin, icon: \.videoCallSolid)
+                Label(L10n.actionJoin, icon: joinCallIcon)
                     .labelStyle(.titleAndIcon)
             }
             .buttonStyle(ElementCallButtonStyle())
             .accessibilityLabel(L10n.a11yJoinCall)
             .accessibilityIdentifier(A11yIdentifiers.roomScreen.joinCall)
+        } else if context.viewState.isDirectOneToOneRoom {
+            // Clariva: DMs choose between a voice and a video call.
+            Button {
+                isCallTypeChooserPresented = true
+            } label: {
+                CompoundIcon(\.voiceCall)
+            }
+            .accessibilityLabel(L10n.a11yStartCall)
+            .accessibilityIdentifier(A11yIdentifiers.roomScreen.joinCall)
+            // Attached to the button (not the screen) so iOS anchors the popover to it.
+            .confirmationDialog("Start a call", isPresented: $isCallTypeChooserPresented, titleVisibility: .visible) {
+                Button("Voice call") {
+                    context.send(viewAction: .startCall(isVoice: true))
+                }
+                Button("Video call") {
+                    context.send(viewAction: .startCall(isVoice: false))
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Choose how you want to call.")
+            }
         } else {
             Button {
                 context.send(viewAction: .displayCall)

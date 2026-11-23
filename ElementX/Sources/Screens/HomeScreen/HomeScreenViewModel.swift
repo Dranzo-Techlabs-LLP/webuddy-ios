@@ -32,7 +32,8 @@ class HomeScreenViewModel: HomeScreenViewModelType, HomeScreenViewModelProtocol 
          appSettings: AppSettings,
          analyticsService: AnalyticsService,
          notificationManager: NotificationManagerProtocol,
-         userIndicatorController: UserIndicatorControllerProtocol) {
+         userIndicatorController: UserIndicatorControllerProtocol,
+         ongoingCallRoomIDPublisher: CurrentValuePublisher<String?, Never>? = nil) {
         self.userSession = userSession
         self.analyticsService = analyticsService
         self.appSettings = appSettings
@@ -57,22 +58,16 @@ class HomeScreenViewModel: HomeScreenViewModelType, HomeScreenViewModelProtocol 
         
         userSession.sessionSecurityStatePublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] securityState in
+            .sink { [weak self] _ in
                 guard let self else { return }
                 
-                switch securityState.recoveryState {
-                case .disabled:
-                    state.requiresExtraAccountSetup = true
-                    if !state.securityBannerMode.isDismissed {
-                        state.securityBannerMode = .show(.setUpRecovery)
-                    }
-                case .incomplete:
-                    state.requiresExtraAccountSetup = true
-                    state.securityBannerMode = .show(.recoveryOutOfSync)
-                default:
-                    state.securityBannerMode = .none
-                    state.requiresExtraAccountSetup = false
-                }
+                // Clariva (Android 015e5d3504): key storage is provisioned automatically at sign-in
+                // from a passphrase the Clariva API derives. The upstream "Set up recovery" /
+                // "Recovery out of sync" prompts would call enableRecovery() WITHOUT that passphrase,
+                // replacing the account's key storage and locking every other device out of its
+                // history — so they are never offered.
+                state.securityBannerMode = .none
+                state.requiresExtraAccountSetup = false
             }
             .store(in: &cancellables)
         
@@ -145,23 +140,47 @@ class HomeScreenViewModel: HomeScreenViewModelType, HomeScreenViewModelProtocol 
         // Kick off wallet sync for this session. refreshBalance resolves isCurrentUserConsultant
         // from the API; only then does refreshPendingRefundRequests do anything for consultants
         // (no-op for clients). Mirrors Android HomePresenter LaunchedEffect.
+        // The wallet is only registered by the real AppCoordinator (nil in unit/UI tests and previews).
         let userID = userSession.clientProxy.userID
         Task {
-            await ServiceLocator.shared.wallet.refreshBalance(userId: userID)
-            await ServiceLocator.shared.wallet.refreshPendingRefundRequests(consultantUserId: userID)
+            await ServiceLocator.shared.wallet?.refreshBalance(userId: userID)
+            await ServiceLocator.shared.wallet?.refreshPendingRefundRequests(consultantUserId: userID)
         }
-        // Keep the chat-list refund badge near-real-time. Until we have push for refund events,
-        // this polls /v1/refund/pending-for-consultant every 8s so a new request from a client
+        // Clariva (Android ee053dc156): load this account's designation and "Last seen and online"
+        // choice, and keep it "online" for its chat partners while the app is in use. The heartbeat
+        // lives as long as this session's home screen.
+        if let profiles = ServiceLocator.shared.clarivaProfile {
+            Task { await profiles.refreshCurrentUser(userID: userID) }
+            presenceHeartbeat = ClarivaPresenceHeartbeat(userID: userID,
+                                                         appSettings: appSettings,
+                                                         profileService: profiles,
+                                                         ongoingCallRoomIDPublisher: ongoingCallRoomIDPublisher)
+        }
+        // Keep the top-bar balance and the chat-list refund badge near-real-time. Until we have
+        // push for wallet events, this polls the balance and /v1/refund/pending-for-consultant every 8s so a new request from a client
         // lands on the consultant's chat list within seconds — not "next time you reopen the
         // app." WalletService.refreshPendingRefundRequests short-circuits to a no-op when the
         // user is not a consultant, so running the loop unconditionally is safe. Mirrors
         // Android HomePresenter LaunchedEffect at 8s cadence.
         refundBadgePollTask = Task { [weak self] in
+            var pollCount = 0
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 8 * 1_000_000_000)
                 if Task.isCancelled { return }
                 guard self != nil else { return }
-                await ServiceLocator.shared.wallet.refreshPendingRefundRequests(consultantUserId: userID)
+                // Balance first: it also resolves the role that refreshPendingRefundRequests
+                // depends on (Android f444b282d6 added the balance to this loop).
+                await ServiceLocator.shared.wallet?.refreshBalance(userId: userID)
+                await ServiceLocator.shared.wallet?.refreshPendingRefundRequests(consultantUserId: userID)
+                // Android re-reads the designation and "Last seen and online" choice with every balance
+                // poll. Here that is a separate request, so it runs every poll until the first load
+                // succeeds (a failed startup load would otherwise publish "online" against a "Nobody"
+                // choice all session), then every 4th poll (~30 s) to pick up changes made elsewhere.
+                pollCount += 1
+                if let profiles = ServiceLocator.shared.clarivaProfile,
+                   profiles.currentUserPresencePrivacy == nil || pollCount.isMultiple(of: 4) {
+                    await profiles.refreshCurrentUser(userID: userID)
+                }
             }
         }
     }
@@ -171,6 +190,8 @@ class HomeScreenViewModel: HomeScreenViewModelType, HomeScreenViewModelProtocol 
     }
 
     private var refundBadgePollTask: Task<Void, Never>?
+    /// Clariva: publishes this account's presence while the app is active (nil in tests and previews).
+    private var presenceHeartbeat: ClarivaPresenceHeartbeat?
 
     // MARK: - Public
     

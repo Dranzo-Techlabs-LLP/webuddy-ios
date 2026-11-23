@@ -161,7 +161,8 @@ class InviteUsersScreenViewModel: InviteUsersScreenViewModelType, InviteUsersScr
     }
     
     private func fetchUsers() {
-        guard searchQuery.count >= 3 else {
+        // Clariva (Android ccbfee0f5c): gate on the trimmed query, the service searches with it too.
+        guard searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).count >= 3 else {
             state.usersSection = .init(type: .suggestions, users: suggestedUsers)
             return
         }

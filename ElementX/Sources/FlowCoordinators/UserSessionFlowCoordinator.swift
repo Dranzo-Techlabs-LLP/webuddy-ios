@@ -290,7 +290,8 @@ class UserSessionFlowCoordinator: FlowCoordinatorProtocol {
         userSession.clientProxy.spaceService.topLevelSpacesPublisher
             .combineLatest(flowParameters.appSettings.$createSpaceEnabled)
             .map { topLevelSpaces, isCreateSpaceEnabled in
-                !isCreateSpaceEnabled && topLevelSpaces.isEmpty ? .hidden : nil
+                // Clariva (Android ee053dc156): no group rooms or spaces, so the Chats/Spaces bar is hidden.
+                !ClarivaConfig.groupRoomsEnabled || (!isCreateSpaceEnabled && topLevelSpaces.isEmpty) ? .hidden : nil
             }
             .weakAssign(to: \.chatsTabDetails.barVisibilityOverride, on: self)
             .store(in: &cancellables)
@@ -408,14 +409,63 @@ class UserSessionFlowCoordinator: FlowCoordinatorProtocol {
         presentCallScreen(roomProxy: roomProxy)
     }
     
+    /// The room whose call screen waits for the call type lookup (up to 2 s), to ignore repeated taps.
+    private var preparingCallRoomID: String?
+    
     private func presentCallScreen(roomProxy: JoinedRoomProxyProtocol) {
+        // Clariva: an explicit media choice (the room screen's Voice/Video chooser, answering a ring)
+        // is handed over through the store. Always consume it so that it can't leak into a later call.
+        let explicitStartWithVideoMuted = CallMediaChoiceStore.shared.consumeStartWithVideoMuted(for: roomProxy.id)
+        
+        // Returning to the ongoing call must stay instant, so don't wait for the call type lookup.
+        guard flowParameters.ongoingCallRoomIDPublisher.value != roomProxy.id else {
+            MXLog.info("Returning to existing call.")
+            callScreenPictureInPictureController?.stopPictureInPicture()
+            return
+        }
+        
+        guard preparingCallRoomID != roomProxy.id else {
+            MXLog.info("Already preparing the call screen for this room.")
+            return
+        }
+        
         let colorScheme: ColorScheme = flowParameters.windowManager.mainWindow.traitCollection.userInterfaceStyle == .light ? .light : .dark
+        
+        if let explicitStartWithVideoMuted {
+            presentCallScreen(roomProxy: roomProxy, colorScheme: colorScheme, startWithVideoMuted: explicitStartWithVideoMuted)
+            return
+        }
+        
+        // No explicit choice (Join, Room details, Recents…): follow the call's recorded type.
+        // Android parity (f825b91c6d): only a recorded "voice" starts camera-off, unknown → camera on.
+        preparingCallRoomID = roomProxy.id
+        Task { [weak self] in
+            guard let self else { return }
+            
+            let isVoiceCall = await isRecordedVoiceCall(roomID: roomProxy.id)
+            preparingCallRoomID = nil
+            presentCallScreen(roomProxy: roomProxy, colorScheme: colorScheme, startWithVideoMuted: isVoiceCall)
+        }
+    }
+    
+    private func presentCallScreen(roomProxy: JoinedRoomProxyProtocol, colorScheme: ColorScheme, startWithVideoMuted: Bool) {
+        MXLog.info("Presenting the call screen, start with video muted: \(startWithVideoMuted)")
         presentCallScreen(configuration: .init(roomProxy: roomProxy,
                                                clientProxy: userSession.clientProxy,
                                                clientID: InfoPlistReader.main.bundleIdentifier,
                                                elementCallBaseURL: flowParameters.appSettings.elementCallBaseURL,
                                                elementCallBaseURLOverride: flowParameters.appSettings.elementCallBaseURLOverride,
-                                               colorScheme: colorScheme))
+                                               colorScheme: colorScheme,
+                                               startWithVideoMuted: startWithVideoMuted))
+    }
+    
+    /// Whether the Wallet API records the room's latest call as a voice call (bounded to 2 s).
+    private func isRecordedVoiceCall(roomID: String) async -> Bool {
+        guard let wallet = ServiceLocator.shared.wallet else {
+            return false
+        }
+        
+        return await wallet.getRoomCallType(roomId: roomID) == "voice"
     }
     
     private var callScreenPictureInPictureController: AVPictureInPictureController?
@@ -480,8 +530,6 @@ class UserSessionFlowCoordinator: FlowCoordinatorProtocol {
     // MARK: - Logout
     
     private func runLogoutFlow() async {
-        let secureBackupController = userSession.clientProxy.secureBackupController
-        
         guard case let .success(isLastDevice) = await userSession.clientProxy.isOnlyDeviceLeft() else {
             flowParameters.userIndicatorController.alertInfo = .init(id: .init())
             return
@@ -492,30 +540,10 @@ class UserSessionFlowCoordinator: FlowCoordinatorProtocol {
             return
         }
         
-        guard secureBackupController.recoveryState.value == .enabled else {
-            flowParameters.userIndicatorController.alertInfo = .init(id: .init(),
-                                                                     title: L10n.screenSignoutRecoveryDisabledTitle,
-                                                                     message: L10n.screenSignoutRecoveryDisabledSubtitle,
-                                                                     primaryButton: .init(title: L10n.screenSignoutConfirmationDialogSubmit, role: .destructive) { [weak self] in
-                                                                         self?.actionsSubject.send(.logout)
-                                                                     }, secondaryButton: .init(title: L10n.commonSettings, role: .cancel) { [weak self] in
-                                                                         self?.chatsFlowCoordinator.handleAppRoute(.chatBackupSettings, animated: true)
-                                                                     })
-            return
-        }
-        
-        guard secureBackupController.keyBackupState.value == .enabled else {
-            flowParameters.userIndicatorController.alertInfo = .init(id: .init(),
-                                                                     title: L10n.screenSignoutKeyBackupDisabledTitle,
-                                                                     message: L10n.screenSignoutKeyBackupDisabledSubtitle,
-                                                                     primaryButton: .init(title: L10n.screenSignoutConfirmationDialogSubmit, role: .destructive) { [weak self] in
-                                                                         self?.actionsSubject.send(.logout)
-                                                                     }, secondaryButton: .init(title: L10n.commonSettings, role: .cancel) { [weak self] in
-                                                                         self?.chatsFlowCoordinator.handleAppRoute(.chatBackupSettings, animated: true)
-                                                                     })
-            return
-        }
-        
+        // Clariva (Android 528a712bb6): no "Recovery not set up" / "Key backup disabled" warnings
+        // with a Settings shortcut — chats are backed up with server-provisioned key storage, and
+        // the upstream recovery setup screen is destructive for Clariva accounts. The confirmation
+        // screen still waits for any in-flight key backup upload before signing out.
         presentSecureBackupLogoutConfirmationScreen()
     }
     

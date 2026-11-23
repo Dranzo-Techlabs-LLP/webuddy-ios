@@ -21,6 +21,9 @@ enum ElementCallWidgetDriverError: Error {
 enum ElementCallWidgetDriverAction {
     case callEnded
     case mediaStateChanged(audioEnabled: Bool, videoEnabled: Bool)
+    /// Element Call sent this call's ring (`m.rtc.notification`) through the widget API and the
+    /// homeserver accepted it. Used to observe the peer's decline (Clariva, Android `fc38a7a6a0`).
+    case rtcNotificationSent(eventID: String)
 }
 
 // sourcery: AutoMockable
@@ -30,11 +33,13 @@ protocol ElementCallWidgetDriverProtocol {
     var messagePublisher: PassthroughSubject<String, Never> { get }
     var actions: AnyPublisher<ElementCallWidgetDriverAction, Never> { get }
     
+    /// - Parameter startWithVideoMuted: `true` for a voice call: DMs then use the `*DmVoice` intents (camera off).
     func start(baseURL: URL,
                clientID: String,
                colorScheme: ColorScheme,
                rageshakeURL: String?,
-               analyticsConfiguration: ElementCallAnalyticsConfiguration?) async -> Result<URL, ElementCallWidgetDriverError>
+               analyticsConfiguration: ElementCallAnalyticsConfiguration?,
+               startWithVideoMuted: Bool) async -> Result<URL, ElementCallWidgetDriverError>
     
     /// Passes a message from the Widget to the SDK to handle, returning a Bool that represents whether or not the widget driver is still running.
     @discardableResult

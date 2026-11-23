@@ -11,7 +11,7 @@ import SwiftUI
 
 struct ServerConfirmationScreen: View {
     @Bindable var context: ServerConfirmationScreenViewModel.Context
-    @ObservedObject private var wallet: WalletService = ServiceLocator.shared.wallet
+    @ObservedObject private var wallet: WalletService = ServiceLocator.shared.wallet ?? .offline
     
     private var backgroundColor: Color {
         switch context.viewState.mode {

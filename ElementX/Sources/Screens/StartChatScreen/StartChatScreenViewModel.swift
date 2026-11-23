@@ -64,11 +64,12 @@ class StartChatScreenViewModel: StartChatScreenViewModelType, StartChatScreenVie
             let currentDirectRoom = userSession.clientProxy.directRoomForUserID(user.userID)
             switch currentDirectRoom {
             case .success(.some(let roomId)):
+                // An EXISTING consultant ↔ consultant DM still opens (its composer shows the warning
+                // instead); only creating a new one is refused.
                 hideLoadingIndicator()
                 actionsSubject.send(.showRoom(roomID: roomId))
             case .success:
-                hideLoadingIndicator()
-                state.bindings.selectedUserToInvite = user
+                Task { await confirmStartingDirectRoom(with: user) }
             case .failure:
                 hideLoadingIndicator()
                 displayError()
@@ -79,6 +80,8 @@ class StartChatScreenViewModel: StartChatScreenViewModelType, StartChatScreenVie
             joinRoomByAddress()
         case .openRoomDirectorySearch:
             actionsSubject.send(.openRoomDirectorySearch)
+        case .scanQRCode:
+            actionsSubject.send(.scanQRCode)
         }
     }
     
@@ -90,6 +93,8 @@ class StartChatScreenViewModel: StartChatScreenViewModelType, StartChatScreenVie
     
     private func setupBindings() {
         appSettings.$publicSearchEnabled
+            // The room directory is a group-room feature too, whatever its developer flag says.
+            .map { [areGroupRoomsEnabled = state.areGroupRoomsEnabled] in areGroupRoomsEnabled && $0 }
             .weakAssign(to: \.state.isRoomDirectoryEnabled, on: self)
             .store(in: &cancellables)
         
@@ -163,7 +168,8 @@ class StartChatScreenViewModel: StartChatScreenViewModelType, StartChatScreenVie
     private var fetchUsersTask: Task<Void, Never>?
     
     private func fetchUsers() {
-        guard context.searchQuery.count >= 3 else {
+        // Clariva (Android ccbfee0f5c): gate on the trimmed query, the service searches with it too.
+        guard context.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).count >= 3 else {
             state.usersSection = .init(type: .suggestions, users: suggestedUsers)
             return
         }
@@ -182,11 +188,28 @@ class StartChatScreenViewModel: StartChatScreenViewModelType, StartChatScreenVie
         }
     }
         
+    /// Clariva (Android `DefaultStartDMAction`): consultants may only chat with clients, so a consultant
+    /// can't start a new DM with another consultant. Both roles must be confirmed; unknown fails open.
+    private func confirmStartingDirectRoom(with user: UserProfileProxy) async {
+        let isBlocked = await ConsultantChatRule.isConsultantToConsultant(ownUserID: userSession.clientProxy.userID, otherUserID: user.userID)
+        hideLoadingIndicator()
+        if isBlocked {
+            displayConsultantChatNotAllowed()
+        } else {
+            state.bindings.selectedUserToInvite = user
+        }
+    }
+    
     private func createDirectRoom(user: UserProfileProxy) async {
         defer {
             hideLoadingIndicator()
         }
         showLoadingIndicator()
+        // Covers any path that asks to create directly.
+        if await ConsultantChatRule.isConsultantToConsultant(ownUserID: userSession.clientProxy.userID, otherUserID: user.userID) {
+            displayConsultantChatNotAllowed()
+            return
+        }
         switch await userSession.clientProxy.createDirectRoom(with: user.userID, expectedRoomName: user.displayName) {
         case .success(let roomId):
             analytics.trackCreatedRoom(isDM: true)
@@ -200,6 +223,13 @@ class StartChatScreenViewModel: StartChatScreenViewModelType, StartChatScreenVie
         state.bindings.alertInfo = AlertInfo(id: .failedCreatingRoom,
                                              title: L10n.commonError,
                                              message: L10n.screenStartChatErrorStartingChat)
+    }
+    
+    /// A plain warning without a retry: retrying can't succeed.
+    private func displayConsultantChatNotAllowed() {
+        state.bindings.alertInfo = AlertInfo(id: .consultantChatNotAllowed,
+                                             title: ConsultantChatRule.startChatTitle,
+                                             message: ConsultantChatRule.startChatMessage)
     }
     
     private func joinRoomByAddress() {

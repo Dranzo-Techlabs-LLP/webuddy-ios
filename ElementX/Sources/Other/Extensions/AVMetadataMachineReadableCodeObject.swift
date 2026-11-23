@@ -41,6 +41,9 @@ extension AVMetadataMachineReadableCodeObject {
     }
     
     private static func takeSegment(_ input: inout [Bit], version: Int) throws(AVMetadataBinaryValueError) -> [UInt8] {
+        // The terminator is omitted (or truncated) when the data fills the symbol's capacity.
+        guard input.count >= 4 else { return [] }
+
         do {
             let mode = try input.takeBits(4)
             
@@ -64,6 +67,8 @@ enum BitError: Error {
     case moreThan8BitsTaken
     case moreThan16BitsTaken
     case unhandledAlphanumericCharacter(UInt8)
+    /// The payload ended in the middle of a segment (malformed code).
+    case notEnoughBits
 }
 
 private struct Bit {
@@ -73,7 +78,8 @@ private struct Bit {
 private extension [Bit] {
     mutating func takeBits(_ count: Int) throws(BitError) -> UInt8 {
         guard count <= 8 else { throw .moreThan8BitsTaken }
-        
+        guard count <= self.count else { throw .notEnoughBits }
+
         var value: UInt8 = 0
         for _ in 0..<count {
             value = (value << 1) | remove(at: 0).value
@@ -84,7 +90,8 @@ private extension [Bit] {
 
     mutating func takeBits16(_ count: Int) throws(BitError) -> UInt16 {
         guard count <= 16 else { throw .moreThan16BitsTaken }
-        
+        guard count <= self.count else { throw .notEnoughBits }
+
         var value: UInt16 = 0
         for _ in 0..<count {
             value = (value << 1) | UInt16(remove(at: 0).value)

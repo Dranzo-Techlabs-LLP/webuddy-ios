@@ -18,4 +18,7 @@ protocol RoomScreenViewModelProtocol {
     func timelineHasScrolled(direction: ScrollDirection)
     func setSelectedPinnedEventID(_ eventID: String)
     func displayMediaPreview(_ mediaPreviewViewModel: TimelineMediaPreviewViewModel)
+    /// Clariva: the "Start a new session?" warning shown before a send that starts a new hold.
+    /// `onContinue` is only called when the user chooses to send.
+    func presentNewSessionWarning(onContinue: @escaping (_ neverRemindAgain: Bool) -> Void)
 }

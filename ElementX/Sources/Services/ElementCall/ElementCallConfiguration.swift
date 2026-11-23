@@ -22,7 +22,8 @@ struct ElementCallConfiguration {
                       clientID: String,
                       elementCallBaseURL: URL,
                       elementCallBaseURLOverride: URL?,
-                      colorScheme: ColorScheme)
+                      colorScheme: ColorScheme,
+                      startWithVideoMuted: Bool)
     }
     
     /// The type of call being configured i.e. whether it's an external URL or an internal room call.
@@ -54,18 +55,21 @@ struct ElementCallConfiguration {
     }
     
     /// Creates a configuration for an internal room call.
+    /// - Parameter startWithVideoMuted: `true` for a voice call (camera off). Defaults to a video call.
     init(roomProxy: JoinedRoomProxyProtocol,
          clientProxy: ClientProxyProtocol,
          clientID: String,
          elementCallBaseURL: URL,
          elementCallBaseURLOverride: URL?,
-         colorScheme: ColorScheme) {
+         colorScheme: ColorScheme,
+         startWithVideoMuted: Bool = false) {
         kind = .roomCall(roomProxy: roomProxy,
                          clientProxy: clientProxy,
                          clientID: clientID,
                          elementCallBaseURL: elementCallBaseURL,
                          elementCallBaseURLOverride: elementCallBaseURLOverride,
-                         colorScheme: colorScheme)
+                         colorScheme: colorScheme,
+                         startWithVideoMuted: startWithVideoMuted)
     }
     
     /// A string representing the call being configured.
@@ -73,8 +77,19 @@ struct ElementCallConfiguration {
         switch kind {
         case .genericCallLink(let url):
             url.absoluteString
-        case .roomCall(let roomProxy, _, _, _, _, _):
+        case .roomCall(let roomProxy, _, _, _, _, _, _):
             roomProxy.id
+        }
+    }
+    
+    /// Whether the call starts with the camera on. External call links carry no media hint and
+    /// count as video (Android `CallScreenPresenter.isVideoCall` parity).
+    var isVideoCall: Bool {
+        switch kind {
+        case .genericCallLink:
+            true
+        case .roomCall(_, _, _, _, _, _, let startWithVideoMuted):
+            !startWithVideoMuted
         }
     }
 }
